@@ -1,0 +1,76 @@
+{
+  "name": "dsh-provider-info",
+  "version": "0.1.0",
+  "description": "在模型座左侧显示当前模型所属提供商（显示名称优先，回退 Provider ID）。纯运行时装饰，不改动原生页面源码。",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./typert": "./lib/typert.host.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-client-connection": "*",
+    "@deepseek-ai/dsh-client-runtime": "*",
+    "@deepseek-ai/dsh-typert-protocol": "*",
+    "@earendil-works/pi-ai": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-runtime": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    }
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "provider",
+    "model",
+    "badge"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cowwo/dsh-provider-info.git"
+  },
+  "homepage": "https://github.com/cowwo/dsh-provider-info#readme",
+  "bugs": {
+    "url": "https://github.com/cowwo/dsh-provider-info/issues"
+  },
+  "author": "cowwo <cowwo@users.noreply.github.com>"
+}
