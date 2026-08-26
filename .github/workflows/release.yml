@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write   # 需要写权限才能创建 GitHub Release
 
 jobs:
   publish:
@@ -32,3 +32,22 @@ jobs:
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # 3. 自动创建 GitHub Release 版本页（写进安装命令）
+      - name: Create GitHub Release
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## 安装
+
+          ```sh
+          dsh plugin --profile web add dsh-provider-info
+          ```
+
+          也可用 scoped 名：`@cowwo/dsh-provider-info`。
+
+          - 在模型选择旁显示当前模型所属服务商
+          - 悬停查看提供商与模型详情
+          EOF
+          gh release create v${GITHUB_REF_NAME} --title "v${GITHUB_REF_NAME}" --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
