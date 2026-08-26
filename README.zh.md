@@ -1,4 +1,4 @@
-# dsh-provider-info
+# @cowwo/dsh-provider-info
 
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 插件。
 
@@ -37,7 +37,7 @@ DeepSeek Harness 可以同时配置多家 AI 服务商，每家服务商下面�
 ### 方式一：用命令安装
 
 ```bash
-dsh plugin --profile web add dsh-provider-info
+dsh plugin --profile web add @cowwo/dsh-provider-info
 ```
 
 ### 方式二：手动配置
@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-provider-info
 
 ```json
 // profile 的 package.json
-"dependencies": { "dsh-provider-info": "^0.1.0" }
+"dependencies": { "@cowwo/dsh-provider-info": "^0.1.0" }
 ```
 
 再在 profile 配置里声明加载它：
@@ -56,7 +56,7 @@ dsh plugin --profile web add dsh-provider-info
 dsh:
   profile:
     bundles:
-      - dsh-provider-info
+      - @cowwo/dsh-provider-info
 ```
 
 装好后重启一次 `dsh web`，然后刷新页面。
