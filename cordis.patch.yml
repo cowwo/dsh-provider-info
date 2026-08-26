@@ -1,4 +1,4 @@
 # dsh-provider-info bundle patch: insert the plugin into a profile's layer stack.
 - insert:
     - id: provider-info
-      name: '@cowwo/dsh-provider-info'
+      name: 'dsh-provider-info'

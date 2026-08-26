@@ -1,4 +1,4 @@
-# @cowwo/dsh-provider-info
+# dsh-provider-info
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) plugin.
 
@@ -39,7 +39,7 @@ This plugin is loaded through the DSH profile mechanism (for example the `web` p
 ### Option 1: Install via command
 
 ```bash
-dsh plugin --profile web add @cowwo/dsh-provider-info
+dsh plugin --profile web add dsh-provider-info
 ```
 
 ### Option 2: Configure manually
@@ -48,7 +48,7 @@ Add it to your profile's dependencies:
 
 ```json
 // profile package.json
-"dependencies": { "@cowwo/dsh-provider-info": "^0.1.0" }
+"dependencies": { "dsh-provider-info": "^0.1.0" }
 ```
 
 Then declare the bundle in your profile config:
@@ -58,7 +58,7 @@ Then declare the bundle in your profile config:
 dsh:
   profile:
     bundles:
-      - @cowwo/dsh-provider-info
+      - dsh-provider-info
 ```
 
 After installing, restart `dsh web` once and refresh the page.

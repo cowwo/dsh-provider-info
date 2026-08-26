@@ -16,7 +16,19 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - run: npm ci || pnpm install --no-frozen-lockfile
-      - run: npm publish --access public
+      - name: Install deps
+        run: npm ci || pnpm install --no-frozen-lockfile
+
+      # 1. 发布裸名版 dsh-provider-info（让别人用短名装）
+      - name: Publish dsh-provider-info
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # 2. 临时把包名改成 @cowwo 的 scoped 版再发一次
+      - name: Publish @cowwo/dsh-provider-info
+        run: |
+          npm pkg set name=@cowwo/dsh-provider-info
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-	id: "@cowwo/dsh-provider-info",
+	id: "dsh-provider-info",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
