@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # npm Trusted Publishing 需要 OIDC 身份令牌
 
 jobs:
   publish:
@@ -16,6 +15,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
       - run: npm ci || pnpm install --no-frozen-lockfile
-      # Trusted Publishing: 通过 GitHub OIDC 自动认证，无需手动 NPM_TOKEN
-      - run: npm publish --provenance --access public
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
