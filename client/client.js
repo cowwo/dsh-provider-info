@@ -187,6 +187,30 @@ window.__ModuleLoader__.load({
 			const hideTip = () => {
 				if (tip) tip.style.display = "none";
 			};
+			// 把悬浮热区绑到整个模型选择按钮（而不只是徽章那块）
+			const onEnter = () => {
+				if (hideTimer) clearTimeout(hideTimer);
+				hideTimer = null;
+				if (showTimer) clearTimeout(showTimer);
+				showTimer = setTimeout(showTip, SHOW_DELAY);
+			};
+			const onLeave = () => {
+				if (showTimer) clearTimeout(showTimer);
+				showTimer = null;
+				if (hideTimer) clearTimeout(hideTimer);
+				hideTimer = setTimeout(hideTip, HIDE_DELAY);
+			};
+			let boundBtn = null;
+			const attachHover = (btn) => {
+				if (boundBtn === btn) return;
+				if (boundBtn) {
+					boundBtn.removeEventListener("mouseenter", onEnter);
+					boundBtn.removeEventListener("mouseleave", onLeave);
+				}
+				boundBtn = btn;
+				btn.addEventListener("mouseenter", onEnter);
+				btn.addEventListener("mouseleave", onLeave);
+			};
 
 			// ---- 徽章 + 悬停挂载 ----
 			const tick = async () => {
@@ -204,23 +228,12 @@ window.__ModuleLoader__.load({
 							fontWeight: 400, letterSpacing: ".01em",
 							whiteSpace: "nowrap"
 						});
-						badge.addEventListener("mouseenter", () => {
-							if (hideTimer) clearTimeout(hideTimer);
-							hideTimer = null;
-							if (showTimer) clearTimeout(showTimer);
-							showTimer = setTimeout(showTip, SHOW_DELAY);
-						});
-						badge.addEventListener("mouseleave", () => {
-							if (showTimer) clearTimeout(showTimer);
-							showTimer = null;
-							if (hideTimer) clearTimeout(hideTimer);
-							hideTimer = setTimeout(hideTip, HIDE_DELAY);
-						});
 						// 滚动/尺寸变化时隐藏，避免浮层错位
 						window.addEventListener("scroll", hideTip, { passive: true, capture: true });
 						window.addEventListener("resize", hideTip);
 					}
 					if (badge.parentNode !== seatBtn) seatBtn.insertBefore(badge, seatBtn.firstChild);
+					attachHover(seatBtn);
 					const sessionId = sessions.list.getSnapshot().current;
 					if (typeof sessionId !== "string") return;
 					const { result } = await api.sessions.models({ sessionId });
