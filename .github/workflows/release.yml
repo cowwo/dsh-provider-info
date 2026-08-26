@@ -48,6 +48,6 @@ jobs:
           - 在模型选择旁显示当前模型所属服务商
           - 悬停查看提供商与模型详情
           EOF
-          gh release create ${GITHUB_REF_NAME} --title "v${GITHUB_REF_NAME}" --notes-file release-notes.md
+          gh release create ${GITHUB_REF_NAME} --title "${GITHUB_REF_NAME}" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
