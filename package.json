@@ -28,7 +28,6 @@
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-client-connection": "*",
     "@deepseek-ai/dsh-client-runtime": "*",
-    "@deepseek-ai/dsh-credentials": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
     "@earendil-works/pi-ai": "*"
   },
@@ -43,9 +42,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-typert-protocol": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-credentials": {
       "optional": true
     },
     "@earendil-works/pi-ai": {
