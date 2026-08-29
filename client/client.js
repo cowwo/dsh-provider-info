@@ -134,7 +134,6 @@ window.__ModuleLoader__.load({
 			};
 
 			// ---- 余量（余额/限额）----
-			const UNSUPPORTED = "无法查询";
 			const fmtNum2 = (n) => {
 				var v = Number(n);
 				return v === v ? v.toFixed(2) : "—";
@@ -164,57 +163,61 @@ window.__ModuleLoader__.load({
 			const balanceCache = { key: null, value: null };
 			const resolveBalance = async (provider, cfg) => {
 				const key = provider;
-				if (balanceCache.key === key) return balanceCache.value;
+				// 只缓存「成功且有数据」的结果；错误/未识别结果不缓存，避免临时故障被长期记住。
+				const cacheable = balanceCache.key === key && balanceCache.value && balanceCache.value.recognized && balanceCache.value.supported && !balanceCache.value.error;
+				if (cacheable) return balanceCache.value;
 				try {
 					const resp = await rpc.call("/api", "providerBadge/balance", {
 						args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null } }
 					});
 					const b = resp && resp.ok ? (resp.value || null) : null;
-					balanceCache.key = key;
-					balanceCache.value = b;
+					if (b && b.recognized && b.supported && !b.error) {
+						balanceCache.key = key;
+						balanceCache.value = b;
+					} else {
+						balanceCache.key = null;
+						balanceCache.value = null;
+					}
 					return b;
 				} catch (e) {
 					console.warn("[provider-badge] balance 失败", e);
+					balanceCache.key = null;
+					balanceCache.value = null;
 					return null;
 				}
 			};
-			// 余量浮层区块：balance 家族展示金额，limits 家族展示各窗口百分比 + 重置倒计时。
+			// 余量浮层区块：仅 DeepSeek（余额）与 OpenCode Go（5h/周/月限额）查询，
+			// 已识别但不支持的厂商显示「暂不支持该供应商查询」，未识别的不展示。
 			const balanceRows = (b) => {
-				if (!b || !b.supported) return null;
-				if (b.error) {
-					if (b.error === "no-api-key") return row("余量", "未配置 API Key");
-					return row("余量", "查询失败");
-				}
-				if (b.kind === "balance") {
-					var bal = b.balance;
-					if (b.family === "deepseek") {
-						var infos = (bal && bal.balance_infos) || [];
-						var parts = infos.map((i) => currencySymbol(i.currency) + fmtNum2(i.total_balance));
-						return row("余额", parts.length ? parts.join(" · ") : "—" + (bal && bal.is_available === false ? "（余额不足）" : ""));
-					}
-					if (b.family === "openrouter") {
-						var rem = bal && bal.remaining;
-						return row("余额", bal && rem !== null ? "$" + fmtNum2(rem) : "查询失败");
-					}
+				if (!b) return null;
+				// 已识别但暂不支持查询的厂商。
+				if (!b.supported) {
+					if (b.error === "not-supported") return [row("余量", "暂不支持该供应商查询")];
 					return null;
 				}
+				// 支持查询但出错。
+				if (b.error) {
+					return [row("余量", b.error === "no-api-key" ? "未配置 API Key" : "查询失败")];
+				}
+				// balance 家族（DeepSeek）：余额金额。
+				if (b.kind === "balance" && b.family === "deepseek") {
+					var bal = b.balance;
+					var infos = (bal && bal.balance_infos) || [];
+					var parts = infos.map((i) => currencySymbol(i.currency) + fmtNum2(i.total_balance));
+					var suffix = bal && bal.is_available === false ? "（余额不足）" : "";
+					return [row("余额", parts.length ? parts.join(" · ") + suffix : "—" + suffix)];
+				}
+				// limits 家族（OpenCode Go）：各窗口已用百分比 + 重置倒计时。
 				if (b.kind === "limits") {
 					var wins = b.windows || [];
-					if (!wins.length) return null;
+					if (!wins.length) return [row("余量", "无数据")];
 					var rows = [];
 					for (var i = 0; i < wins.length; i++) {
 						var w = wins[i];
 						var title = w.label || w.key || "窗口";
-						var pct = w.kind === "tier"
-							? (w.utilization !== null && w.utilization !== undefined ? fmtPct(w.utilization) : null)
-							: (w.percent !== null && w.percent !== undefined ? fmtPct(w.percent) : (w.utilization !== null && w.utilization !== undefined ? fmtPct(w.utilization) : null));
-						var detail = "";
-						if (w.kind === "tier" && w.limit !== null && w.limit !== undefined) {
-							detail = pct + "（剩 " + fmtNum2(w.remaining) + "）";
-						} else {
-							detail = pct || "";
-							if (w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
-						}
+						var pct = (w.percent !== null && w.percent !== undefined) ? fmtPct(w.percent) : null;
+						var detail = pct || "";
+						if (w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
 						var cd = countdownStr(w.resetsAt);
 						rows.push(row(title, detail + (cd ? " · " + cd : "")));
 					}
@@ -267,17 +270,13 @@ window.__ModuleLoader__.load({
 					t.appendChild(row("最大 token", mi && mi.maxTokens != null ? String(mi.maxTokens) : null));
 					t.appendChild(row("输入模态", mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
 					t.appendChild(row("兼容信息", compatText));
-					// ---- 余量（余额/限额）：仅在支持查询时展示 ----
+					// ---- 余量（余额/限额）：已识别厂商才展示 ----
 					const bal = await resolveBalance(provider, cfg);
-					if (bal && bal.supported) {
+					if (bal && bal.recognized) {
 						const bRows = balanceRows(bal);
-						t.appendChild(heading("余量"));
-						if (bal.error) {
-							t.appendChild(row("余量状态", bal.error === "no-api-key" ? "未配置 API Key" : "查询失败"));
-						} else if (bRows && bRows.length) {
+						if (bRows && bRows.length) {
+							t.appendChild(heading("余量"));
 							for (var bi = 0; bi < bRows.length; bi++) t.appendChild(bRows[bi]);
-						} else {
-							t.appendChild(row("余量状态", "无数据"));
 						}
 					}
 

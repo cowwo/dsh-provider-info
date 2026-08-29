@@ -21,6 +21,10 @@ DeepSeek Harness can be configured with several AI providers at once, and each p
 - Missing values are shown as `未提供`; long values wrap.
 - The label updates automatically as you switch models.
 - **Never touches your keys**: it only shows the *environment variable name* for the credential — it never reads or shows the actual secret.
+- **Quota / balance section**: for providers that support it, the hover panel also shows the provider's remaining quota — DeepSeek account balance, or OpenCode Go's 5-hour / weekly / monthly usage limits with reset countdowns. Recognized-but-unsupported providers show `暂不支持该供应商查询`; missing keys or query failures show `未配置 API Key` / `查询失败`.
+  - DeepSeek: `GET /user/balance` (read-only, never charges you nor burns tokens).
+  - OpenCode Go: `GET /v1/usage` (read-only usage windows).
+  - The host caches the result per provider for 5 minutes, so hovering repeatedly doesn't hammer the provider API.
 
 ## Screenshots
 

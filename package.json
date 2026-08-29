@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-info",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "在模型座左侧显示当前模型所属提供商（显示名称优先，回退 Provider ID）。纯运行时装饰，不改动原生页面源码。",
   "type": "module",
   "main": "lib/index.js",
@@ -29,7 +29,6 @@
     "@deepseek-ai/dsh-client-connection": "*",
     "@deepseek-ai/dsh-client-runtime": "*",
     "@deepseek-ai/dsh-credentials": "*",
-    "@deepseek-ai/dsh-settings": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
     "@earendil-works/pi-ai": "*"
   },
@@ -47,9 +46,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-credentials": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-settings": {
       "optional": true
     },
     "@earendil-works/pi-ai": {
