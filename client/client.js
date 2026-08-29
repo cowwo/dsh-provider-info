@@ -133,6 +133,96 @@ window.__ModuleLoader__.load({
 				}
 			};
 
+			// ---- 余量（余额/限额）----
+			const UNSUPPORTED = "无法查询";
+			const fmtNum2 = (n) => {
+				var v = Number(n);
+				return v === v ? v.toFixed(2) : "—";
+			};
+			const currencySymbol = (code) => {
+				if (code === "CNY") return "¥";
+				if (code === "USD") return "$";
+				if (code === "EUR") return "€";
+				return (code || "") + " ";
+			};
+			const fmtPct = (u) => {
+				var v = Number(u);
+				return v === v ? Math.round(v) + "%" : "—";
+			};
+			const countdownStr = (resetsAt) => {
+				if (!resetsAt) return null;
+				var t = Date.parse(resetsAt);
+				if (t !== t) return null;
+				var diffMs = t - Date.now();
+				if (diffMs <= 0) return null;
+				var hours = Math.floor(diffMs / 3600000);
+				var minutes = Math.floor((diffMs % 3600000) / 60000);
+				if (hours > 24) return Math.floor(hours / 24) + "d" + (hours % 24) + "h";
+				if (hours > 0) return hours + "h" + minutes + "m";
+				return minutes + "m";
+			};
+			const balanceCache = { key: null, value: null };
+			const resolveBalance = async (provider, cfg) => {
+				const key = provider;
+				if (balanceCache.key === key) return balanceCache.value;
+				try {
+					const resp = await rpc.call("/api", "providerBadge/balance", {
+						args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null } }
+					});
+					const b = resp && resp.ok ? (resp.value || null) : null;
+					balanceCache.key = key;
+					balanceCache.value = b;
+					return b;
+				} catch (e) {
+					console.warn("[provider-badge] balance 失败", e);
+					return null;
+				}
+			};
+			// 余量浮层区块：balance 家族展示金额，limits 家族展示各窗口百分比 + 重置倒计时。
+			const balanceRows = (b) => {
+				if (!b || !b.supported) return null;
+				if (b.error) {
+					if (b.error === "no-api-key") return row("余量", "未配置 API Key");
+					return row("余量", "查询失败");
+				}
+				if (b.kind === "balance") {
+					var bal = b.balance;
+					if (b.family === "deepseek") {
+						var infos = (bal && bal.balance_infos) || [];
+						var parts = infos.map((i) => currencySymbol(i.currency) + fmtNum2(i.total_balance));
+						return row("余额", parts.length ? parts.join(" · ") : "—" + (bal && bal.is_available === false ? "（余额不足）" : ""));
+					}
+					if (b.family === "openrouter") {
+						var rem = bal && bal.remaining;
+						return row("余额", bal && rem !== null ? "$" + fmtNum2(rem) : "查询失败");
+					}
+					return null;
+				}
+				if (b.kind === "limits") {
+					var wins = b.windows || [];
+					if (!wins.length) return null;
+					var rows = [];
+					for (var i = 0; i < wins.length; i++) {
+						var w = wins[i];
+						var title = w.label || w.key || "窗口";
+						var pct = w.kind === "tier"
+							? (w.utilization !== null && w.utilization !== undefined ? fmtPct(w.utilization) : null)
+							: (w.percent !== null && w.percent !== undefined ? fmtPct(w.percent) : (w.utilization !== null && w.utilization !== undefined ? fmtPct(w.utilization) : null));
+						var detail = "";
+						if (w.kind === "tier" && w.limit !== null && w.limit !== undefined) {
+							detail = pct + "（剩 " + fmtNum2(w.remaining) + "）";
+						} else {
+							detail = pct || "";
+							if (w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
+						}
+						var cd = countdownStr(w.resetsAt);
+						rows.push(row(title, detail + (cd ? " · " + cd : "")));
+					}
+					return rows;
+				}
+				return null;
+			};
+
 			const showTip = async () => {
 				if (!badge) return;
 				try {
@@ -177,6 +267,19 @@ window.__ModuleLoader__.load({
 					t.appendChild(row("最大 token", mi && mi.maxTokens != null ? String(mi.maxTokens) : null));
 					t.appendChild(row("输入模态", mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
 					t.appendChild(row("兼容信息", compatText));
+					// ---- 余量（余额/限额）：仅在支持查询时展示 ----
+					const bal = await resolveBalance(provider, cfg);
+					if (bal && bal.supported) {
+						const bRows = balanceRows(bal);
+						t.appendChild(heading("余量"));
+						if (bal.error) {
+							t.appendChild(row("余量状态", bal.error === "no-api-key" ? "未配置 API Key" : "查询失败"));
+						} else if (bRows && bRows.length) {
+							for (var bi = 0; bi < bRows.length; bi++) t.appendChild(bRows[bi]);
+						} else {
+							t.appendChild(row("余量状态", "无数据"));
+						}
+					}
 
 					t.style.display = "block";
 					position(badge);
