@@ -195,9 +195,15 @@ window.__ModuleLoader__.load({
 					if (b.error === "not-supported") return [row("余量", "暂不支持该供应商查询")];
 					return null;
 				}
-				// 支持查询但出错。
+				// 支持查询但出错：细分错误原因。
 				if (b.error) {
-					return [row("余量", b.error === "no-api-key" ? "未配置 API Key" : "查询失败")];
+					var errText = "查询失败";
+					if (b.error === "no-api-key") errText = "未配置 API Key";
+					else if (b.error === "subscription-required") errText = "订阅权限不足";
+					else if (b.error === "unauthorized") errText = "密钥无效";
+					else if (b.error === "http-404") errText = "接口地址错误";
+					else if (b.error === "missing-usage" || b.error === "missing-windows") errText = "接口无用量数据";
+					return [row("余量", errText)];
 				}
 				// balance 家族（DeepSeek）：余额金额。
 				if (b.kind === "balance" && b.family === "deepseek") {
@@ -218,6 +224,7 @@ window.__ModuleLoader__.load({
 						var pct = (w.percent !== null && w.percent !== undefined) ? fmtPct(w.percent) : null;
 						var detail = pct || "";
 						if (w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
+						if (w.rateLimited) detail += " 已限流";
 						var cd = countdownStr(w.resetsAt);
 						rows.push(row(title, detail + (cd ? " · " + cd : "")));
 					}
