@@ -42,8 +42,9 @@ window.__ModuleLoader__.load({
 			"insufficient": "（余额不足）",
 			"rateLimited": "已限流",
 			// 设置页
-			"settings.title": "提供商余量",
-			"settings.subtitle": "调整悬浮浮层里「余量」的刷新行为",
+			"settings.entry": "提供商信息",
+			"settings.title": "提供商信息与余量",
+			"settings.subtitle": "管理悬浮面板的余量查询、字体大小与界面语言",
 			"settings.hoverRefresh": "显示悬浮窗自动刷新",
 			"settings.hoverRefreshDesc": "开启后每次鼠标移入浮窗就重新查询最新余量（绕缓存）",
 			"settings.autoRefresh": "定时刷新",
@@ -97,8 +98,9 @@ window.__ModuleLoader__.load({
 			"insufficient": "(insufficient balance)",
 			"rateLimited": "Rate limited",
 			// 设置页
-			"settings.title": "Provider balance",
-			"settings.subtitle": "Configure the refresh behavior of the balance box",
+			"settings.entry": "Provider info",
+			"settings.title": "Provider info & balance",
+			"settings.subtitle": "Manage the hover panel: balance queries, font size, and language",
 			"settings.hoverRefresh": "Auto refresh on hover",
 			"settings.hoverRefreshDesc": "Re-fetch latest balance every time the mouse enters the box (bypasses cache)",
 			"settings.autoRefresh": "Scheduled refresh",
@@ -659,7 +661,7 @@ window.__ModuleLoader__.load({
 			return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14, maxWidth: 520 } },
 				React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
 					React.createElement("h2", { style: { margin: 0, fontSize: 17, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, tx("settings.title")),
-					React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "调整悬浮浮层里「余量」的刷新行为")
+					React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.subtitle"))
 				),
 				React.createElement("div", { style: { ...styleBase, display: "flex", flexDirection: "column", gap: 12 } },
 					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
@@ -734,7 +736,7 @@ window.__ModuleLoader__.load({
 							name: "settings.section",
 							id: "provider-info",
 							order: 13,
-							label: tx("settings.title")
+							label: tx("settings.entry")
 						}, (props) => React.createElement(ProviderSettingsPage, { ...props, rpc: scoped.connection.rpc })));
 					} catch (e) {
 						console.warn("[provider-badge] 注册设置页失败", e);
