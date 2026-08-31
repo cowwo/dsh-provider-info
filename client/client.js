@@ -47,6 +47,11 @@ window.__ModuleLoader__.load({
 			let tip = null;
 			let showTimer = null;
 			let hideTimer = null;
+			// 方案1：记录鼠标是否在浮窗/按钮上（悬停区）。在悬停区内时滚动不隐藏浮窗。
+			let hovering = false;
+			// 手动刷新：当前余量区块容器与其上下文（provider/cfg），刷新时只重绘数据行。
+			let lastBalanceBox = null;
+			let lastBalanceCtx = null;
 
 			const row = (label, value) => {
 				const r = document.createElement("div");
@@ -88,6 +93,16 @@ window.__ModuleLoader__.load({
 					boxShadow: "0 6px 24px rgba(0,0,0,.28)"
 				});
 				document.body.appendChild(tip);
+				// 浮窗自身也监听鼠标：悬停到浮窗上时保持显示（可停留、可点刷新）。
+				tip.addEventListener("mouseenter", () => {
+					hovering = true;
+					if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+				});
+				tip.addEventListener("mouseleave", () => {
+					hovering = false;
+					if (hideTimer) clearTimeout(hideTimer);
+					hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, HIDE_DELAY);
+				});
 				return tip;
 			};
 			const position = (anchor) => {
@@ -161,14 +176,15 @@ window.__ModuleLoader__.load({
 				return minutes + "m";
 			};
 			const balanceCache = { key: null, value: null };
-			const resolveBalance = async (provider, cfg) => {
+			const resolveBalance = async (provider, cfg, force) => {
 				const key = provider;
 				// 只缓存「成功且有数据」的结果；错误/未识别结果不缓存，避免临时故障被长期记住。
-				const cacheable = balanceCache.key === key && balanceCache.value && balanceCache.value.recognized && balanceCache.value.supported && !balanceCache.value.error;
+				// force=true（手动刷新）时绕过 client 缓存，并把 force 透传给 host 以绕过其 5 分钟缓存。
+				const cacheable = !force && balanceCache.key === key && balanceCache.value && balanceCache.value.recognized && balanceCache.value.supported && !balanceCache.value.error;
 				if (cacheable) return balanceCache.value;
 				try {
 					const resp = await rpc.call("/api", "providerBadge/balance", {
-						args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null } }
+						args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null, force: !!force } }
 					});
 					const b = resp && resp.ok ? (resp.value || null) : null;
 					if (b && b.recognized && b.supported && !b.error) {
@@ -233,6 +249,65 @@ window.__ModuleLoader__.load({
 				return null;
 			};
 
+			// 把 balanceRows 的结果映射为 DOM 行元素。
+			const buildRowEls = (b) => {
+				const objs = balanceRows(b);
+				if (!objs) return null;
+				var els = [];
+				for (var i = 0; i < objs.length; i++) els.push(row(objs[i].label, objs[i].value));
+				return els;
+			};
+			// 点「刷新」：绕过 client + host 缓存，强制重新查询，并只重绘余量数据行。
+			const onRefreshBalance = async () => {
+				const ctx2 = lastBalanceCtx;
+				if (!ctx2 || !lastBalanceBox) return;
+				const btn = lastBalanceBox.btn;
+				if (btn) btn.textContent = "刷新中…";
+				try {
+					const bal = await resolveBalance(ctx2.provider, ctx2.cfg, true);
+					lastBalanceBox.body.innerHTML = "";
+					const els = bal && bal.recognized ? buildRowEls(bal) : null;
+					if (els && els.length) {
+						for (var i = 0; i < els.length; i++) lastBalanceBox.body.appendChild(els[i]);
+					} else {
+						lastBalanceBox.body.appendChild(row("余量", "查询失败"));
+					}
+				} catch (e) {
+					console.warn("[provider-badge] 刷新余量失败", e);
+					lastBalanceBox.body.innerHTML = "";
+					lastBalanceBox.body.appendChild(row("余量", "查询失败"));
+				} finally {
+					if (btn) btn.textContent = "刷新";
+				}
+			};
+			// 在浮窗里挂载「余量」区块：标题行（含刷新按钮）+ 数据行。
+			// 返回容器元素，刷新时可只重绘数据行、不扰动浮窗其它内容。
+			const mountBalanceBlock = (t) => {
+				const box = document.createElement("div");
+				const head = document.createElement("div");
+				Object.assign(head.style, {
+					display: "flex", alignItems: "center", gap: "10px",
+					margin: "6px 0 4px", fontSize: 11, fontWeight: 600, color: "#aab2c0", letterSpacing: ".02em"
+				});
+				const label = document.createElement("span");
+				label.textContent = "余量";
+				const btn = document.createElement("button");
+				btn.textContent = "刷新";
+				Object.assign(btn.style, {
+					marginLeft: "auto", padding: "0 6px", fontSize: 10, lineHeight: "14px", cursor: "pointer",
+					color: "var(--dsw-alias-label-secondary)", background: "transparent",
+					border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 6
+				});
+				btn.addEventListener("click", onRefreshBalance);
+				head.appendChild(label);
+				head.appendChild(btn);
+				const body = document.createElement("div");
+				Object.assign(body.style, { display: "block" });
+				box.appendChild(head);
+				box.appendChild(body);
+				t.appendChild(box);
+				return { box, body, btn };
+			};
 			const showTip = async () => {
 				if (!badge) return;
 				try {
@@ -280,10 +355,12 @@ window.__ModuleLoader__.load({
 					// ---- 余量（余额/限额）：已识别厂商才展示 ----
 					const bal = await resolveBalance(provider, cfg);
 					if (bal && bal.recognized) {
-						const bRows = balanceRows(bal);
-						if (bRows && bRows.length) {
-							t.appendChild(heading("余量"));
-							for (var bi = 0; bi < bRows.length; bi++) t.appendChild(bRows[bi]);
+						const mb = mountBalanceBlock(t);
+						lastBalanceBox = mb;
+						lastBalanceCtx = { provider, cfg };
+						const els = buildRowEls(bal);
+						if (els && els.length) {
+							for (var bi = 0; bi < els.length; bi++) mb.body.appendChild(els[bi]);
 						}
 					}
 
@@ -298,16 +375,19 @@ window.__ModuleLoader__.load({
 			};
 			// 把悬浮热区绑到整个模型选择按钮（而不只是徽章那块）
 			const onEnter = () => {
+				hovering = true;
 				if (hideTimer) clearTimeout(hideTimer);
 				hideTimer = null;
 				if (showTimer) clearTimeout(showTimer);
 				showTimer = setTimeout(showTip, SHOW_DELAY);
 			};
 			const onLeave = () => {
+				hovering = false;
 				if (showTimer) clearTimeout(showTimer);
 				showTimer = null;
 				if (hideTimer) clearTimeout(hideTimer);
-				hideTimer = setTimeout(hideTip, HIDE_DELAY);
+				// 延迟隐藏：若鼠标在 HIDE_DELAY 内移入浮窗，浮窗的 mouseenter 会重置 hovering 并取消。
+				hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, HIDE_DELAY);
 			};
 			let boundBtn = null;
 			const attachHover = (btn) => {
@@ -337,8 +417,9 @@ window.__ModuleLoader__.load({
 							fontWeight: 400, letterSpacing: ".01em",
 							whiteSpace: "nowrap"
 						});
-						// 滚动/尺寸变化时隐藏，避免浮层错位
-						window.addEventListener("scroll", hideTip, { passive: true, capture: true });
+						// 滚动：仅在鼠标不在悬停区（浮窗/按钮）时才隐藏，避免浮层错位；
+						// 鼠标停在浮窗/按钮上时（正在查看/点击刷新）滚动不打断。尺寸变化时始终隐藏。
+						window.addEventListener("scroll", () => { if (!hovering) hideTip(); }, { passive: true, capture: true });
 						window.addEventListener("resize", hideTip);
 					}
 					if (badge.parentNode !== seatBtn) seatBtn.insertBefore(badge, seatBtn.firstChild);
