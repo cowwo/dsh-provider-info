@@ -143,9 +143,13 @@ window.__ModuleLoader__.load({
 				const vw = window.innerWidth, vh = window.innerHeight;
 				const aboveSpace = Math.max(40, r.top - 8);          // 按钮上方可用高度（留 8px）
 				const belowSpace = Math.max(40, vh - r.bottom - 8);  // 按钮下方可用高度（留 8px）
-				// 面板限高：取「按钮上方/下方」里更大的可用空间，但不超过视口（上下各留 8px）。
-				// 这样一来，无论内容多高、按钮在哪，面板都紧贴按钮且整体不超屏；超出部分在面板内滚动。
-				const capH = Math.max(60, Math.min(vh - 16, Math.max(aboveSpace, belowSpace)));
+				// 字体缩放系数（transform: scale(...)），用于换算"视觉高度"占用空间。
+				const m = /scale\((\d+(?:\.\d+)?)\)/.exec(t.style.transform || "");
+				const scale = m ? parseFloat(m[1]) : 1;
+				// 面板限高：取「按钮上方/下方」里更大的可用空间，并除以缩放系数，
+				// 保证缩放后的视觉高度也不超过该空间（不超屏）；超出部分在面板内滚动。
+				const sideSpace = Math.max(0, Math.max(aboveSpace, belowSpace) - 8) / scale;
+				const capH = Math.max(60, Math.min(vh - 16, sideSpace));
 				t.style.maxHeight = capH + "px";
 				const th = t.offsetHeight || 0;
 				const tw = t.offsetWidth || 0;
@@ -153,11 +157,13 @@ window.__ModuleLoader__.load({
 				left = Math.max(8, Math.min(left, vw - tw - 8));
 				let top;
 				if (aboveSpace >= th) {
-					// 上方能放下：面板底边贴按钮顶（留 8px）
+					// 上方能放下：面板底边贴按钮顶（留 8px），缩放锚定底边中心 → 大中小底边都贴着选择器
 					top = r.top - th - 8;
+					t.style.transformOrigin = "bottom center";
 				} else {
-					// 上方放不下：放到按钮下方，底边贴屏幕下缘（面板高度已按 capH 限制）
+					// 上方放不下：放到按钮下方，顶边贴按钮底（留 8px），缩放锚定顶边中心 → 大中小顶边都贴着选择器
 					top = Math.max(8, Math.min(r.bottom + 8, vh - capH - 8));
+					t.style.transformOrigin = "top center";
 				}
 				t.style.left = left + "px";
 				t.style.top = top + "px";
@@ -409,8 +415,9 @@ window.__ModuleLoader__.load({
 						}
 					}
 
-					// 字体大小：大 = 放大整体，小 = 缩小整体，中 = 原样（zoom 均匀缩放，视觉随内容自适应）。
-					t.style.zoom = QSettings.fontSize === "large" ? "1.15" : QSettings.fontSize === "small" ? "0.85" : "1";
+					// 字体大小：大/中/小。用 transform scale + transform-origin: bottom center —— 缩放以「底边中心」（贴住模型选择器的那条边）为原点，
+					// 这样无论大中小，面板底边都始终贴着选择器，不会像 zoom（左上角为原点）一样切换时位置飘移。
+					t.style.transform = QSettings.fontSize === "large" ? "scale(1.15)" : QSettings.fontSize === "small" ? "scale(0.85)" : "scale(1)";
 					t.style.display = "block";
 					position(badge);
 				} catch (e) {

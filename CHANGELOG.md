@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 新增「字体大小」设置项（大 / 中 / 小，默认「中」＝当前大小；通过 zoom 整体缩放悬浮面板，视觉自适应）。
 - 余量「刷新」按钮与「余量」文字间距调小（head gap 4px→2px，去掉按钮额外 margin，padding 0 6px→0 4px）。
 - 修复：兼容信息长 JSON 不再无限撑高面板（限高 44px + 内部滚动），使大/中/小字体下弹窗都能紧贴模型选择器、不再顶到屏幕中部。
+- 修复：弹窗定位改用「以选择器为锚」——字体缩放从老 zoom(左上角原点)改为 transform scale + transform-origin 动态跟随（贴按钮上方用 bottom center、下方用 top center），并按缩放系数换算面板限高，保证大/中/小始终紧贴模型选择器且不超屏。
 
 ## [0.1.0] - 2026-08-25
 ### Added
