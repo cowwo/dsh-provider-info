@@ -4,6 +4,34 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		let React = require("react");
+
+		// ---- 插件设置（持久化于 host 侧 json 文件）----
+		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5 };
+		function loadSettings(rpc) {
+			try {
+				rpc.call("/api", "providerBadge/settings", { args: { request: { op: "get" } } }).then((resp) => {
+					if (resp && resp.ok && resp.value && resp.value.settings) {
+						const s = resp.value.settings;
+						if (typeof s.hoverRefresh === "boolean") QSettings.hoverRefresh = s.hoverRefresh;
+						if (typeof s.autoRefreshOn === "boolean") QSettings.autoRefreshOn = s.autoRefreshOn;
+						if (typeof s.autoRefreshMin === "number") QSettings.autoRefreshMin = s.autoRefreshMin;
+					}
+				}).catch(() => {});
+			} catch (e) { console.warn("[provider-badge] 读取设置失败", e); }
+		}
+		function saveSettings(rpc, patch) {
+			return rpc.call("/api", "providerBadge/settings", { args: { request: { op: "set", patch } } }).then((resp) => {
+				if (resp && resp.ok && resp.value && resp.value.settings) {
+					const s = resp.value.settings;
+					QSettings.hoverRefresh = !!s.hoverRefresh;
+					QSettings.autoRefreshOn = !!s.autoRefreshOn;
+					QSettings.autoRefreshMin = Number(s.autoRefreshMin) || 5;
+					return true;
+				}
+				return false;
+			}).catch((e) => { console.warn("[provider-badge] 保存设置失败", e); return false; });
+		}
 
 		//#region 提供商徽章 + 悬浮信息浮层
 		function installProviderBadge(sessions, api, rpc) {
@@ -352,7 +380,8 @@ window.__ModuleLoader__.load({
 					t.appendChild(row("输入模态", mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
 					t.appendChild(row("兼容信息", compatText));
 					// ---- 余量（余额/限额）：已识别厂商才展示 ----
-					const bal = await resolveBalance(provider, cfg);
+					// 悬停立即刷新：开启时每次悬停都强制重查（绕缓存）；否则走默认 5 分钟缓存。
+					const bal = await resolveBalance(provider, cfg, QSettings.hoverRefresh);
 					if (bal && bal.recognized) {
 						const mb = mountBalanceBlock(t);
 						lastBalanceBox = mb;
@@ -440,16 +469,90 @@ window.__ModuleLoader__.load({
 			// 2s 轮询（最简形态，不耦合 React 生命周期）
 			setInterval(tick, 2000);
 			tick();
+			// 读取持久化设置（悬停立即刷新 / 自动刷新间隔），并开启自动刷新调度。
+			loadSettings(rpc);
+			const autoRefresh = () => {
+				if (!QSettings.autoRefreshOn) return;
+				if (!tip || tip.style.display !== "block") return;
+				if (lastBalanceCtx && lastBalanceBox) onRefreshBalance();
+			};
+			setInterval(autoRefresh, Math.max(1, QSettings.autoRefreshMin || 5) * 60 * 1000);
 		}
 		//#endregion
 
-		const inject = ["sessions", "connection"];
+		const inject = ["sessions", "connection", "slots"];
+		// ----「提供商余量」设置页 ----
+		function ProviderSettingsPage(props) {
+			const rpc = props.rpc;
+			const [hoverRefresh, setHoverRefresh] = React.useState(QSettings.hoverRefresh);
+			const [autoRefreshOn, setAutoRefreshOn] = React.useState(QSettings.autoRefreshOn);
+			const [min, setMin] = React.useState(String(QSettings.autoRefreshMin));
+			const [busy, setBusy] = React.useState(false);
+			const [status, setStatus] = React.useState(null);
+			const styleBase = { background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 12, padding: "14px" };
+			const save = () => {
+				let m = Number(min);
+				if (!Number.isFinite(m) || m < 1) m = 5;
+				m = Math.round(m);
+				setMin(String(m));
+				setBusy(true); setStatus(null);
+				saveSettings(rpc, { hoverRefresh: !!hoverRefresh, autoRefreshOn: !!autoRefreshOn, autoRefreshMin: m }).then((ok) => {
+					setBusy(false);
+					setStatus(ok ? "已保存" : "保存失败");
+				});
+			};
+			return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14, maxWidth: 520 } },
+				React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+					React.createElement("h2", { style: { margin: 0, fontSize: 17, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, "提供商余量"),
+					React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "调整悬浮浮层里「余量」的刷新行为")
+				),
+				React.createElement("div", { style: { ...styleBase, display: "flex", flexDirection: "column", gap: 12 } },
+					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
+						React.createElement("input", { type: "checkbox", checked: hoverRefresh, onChange: (e) => setHoverRefresh(e.target.checked) }),
+						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
+							React.createElement("span", null, "鼠标悬停立即刷新"),
+							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "开启后每次鼠标移入浮窗就重新查询余量（绕缓存）")
+						)
+					),
+					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
+						React.createElement("input", { type: "checkbox", checked: autoRefreshOn, onChange: (e) => setAutoRefreshOn(e.target.checked) }),
+						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
+							React.createElement("span", null, "自动刷新"),
+							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "浮窗打开时按间隔自动重新查询余量")
+						)
+					),
+					React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+						React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, "自动刷新间隔(分钟)"),
+						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } }),
+						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "（最低 1）")
+					)
+				),
+				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+					React.createElement("button", { type: "button", onClick: save, disabled: busy, style: { background: "var(--dsw-alias-label-primary)", color: "var(--dsw-alias-bg-layer-3)", border: "none", borderRadius: 8, padding: "6px 16px", fontSize: 13, cursor: "pointer", fontWeight: 500, opacity: busy ? 0.5 : 1 } }, busy ? "保存中…" : "保存"),
+					status ? React.createElement("span", { style: { fontSize: 13, color: status === "已保存" ? "var(--dsw-alias-state-success-primary)" : "var(--dsw-alias-state-error-primary)" } }, status) : null
+				)
+			);
+		}
+
 		function apply(ctx) {
-			ctx.inject(["sessions", "connection"], (scoped) => {
+			ctx.inject(["sessions", "connection", "slots"], (scoped) => {
 				try {
 					installProviderBadge(scoped.sessions, scoped.connection.api, scoped.connection.rpc);
 				} catch (e) {
 					console.warn("[provider-badge] 安装失败", e);
+				}
+				const slots = scoped.slots;
+				if (slots && slots.inject) {
+					try {
+						slots.inject("settings.section", () => slots.register({
+							name: "settings.section",
+							id: "provider-info",
+							order: 13,
+							label: "提供商余量"
+						}, (props) => React.createElement(ProviderSettingsPage, { ...props, rpc: scoped.connection.rpc })));
+					} catch (e) {
+						console.warn("[provider-badge] 注册设置页失败", e);
+					}
 				}
 			});
 		}

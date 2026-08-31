@@ -27,6 +27,7 @@ DeepSeek Harness can be configured with several AI providers at once, and each p
   - The host caches the result per provider for 5 minutes, so hovering repeatedly doesn't hammer the provider API.
   - The quota block has a **Refresh** button: click it to bypass the cache and immediately pull the latest quota (still read-only). Hovering normally uses the 5-minute cache.
   - While your mouse is over the panel/button, message-stream scrolling won't hide the panel, so you can read it comfortably; it only hides on scroll after you move away.
+  - **Refresh behavior** is adjustable from **Settings → 提供商余量**: enable *mouse-hover immediate refresh* (default on) to bypass the cache on every hover, or enable *auto-refresh* (default off) with an interval in minutes (default 5, minimum 1) to re-query while the panel is open. Settings persist in `$DSH_HOME/dsh-provider-info.json` (mode 0600).
 
 ## Screenshots
 
@@ -68,6 +69,16 @@ dsh:
 ```
 
 After installing, restart `dsh web` once and refresh the page.
+
+## Settings
+
+Open **设置 → 提供商余量** to configure the quota refresh behavior:
+
+- **鼠标悬停立即刷新** (default checked): re-query the remaining quota immediately whenever you hover the badge, bypassing the 5-minute cache.
+- **自动刷新** (default unchecked) + **自动刷新间隔(分钟)** (default 5, minimum 1): while the hover panel is open, re-query the remaining quota on the configured interval.
+
+Changes are saved to `$DSH_HOME/dsh-provider-info.json` and apply immediately.
+
 
 ## Usage
 
