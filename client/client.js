@@ -515,21 +515,21 @@ window.__ModuleLoader__.load({
 					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
 						React.createElement("input", { type: "checkbox", checked: hoverRefresh, onChange: (e) => setHoverRefresh(e.target.checked) }),
 						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
-							React.createElement("span", null, "鼠标悬停立即刷新"),
-							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "开启后每次鼠标移入浮窗就重新查询余量（绕缓存）")
+							React.createElement("span", null, "显示悬浮窗自动刷新"),
+							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "开启后每次鼠标移入浮窗就重新查询最新余量（绕缓存）")
 						)
 					),
 					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
 						React.createElement("input", { type: "checkbox", checked: autoRefreshOn, onChange: (e) => setAutoRefreshOn(e.target.checked) }),
 						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
-							React.createElement("span", null, "自动刷新"),
-							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "浮窗打开时按间隔自动重新查询余量")
+							React.createElement("span", null, "定时刷新"),
+							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "浮窗打开时按设定间隔定时重新查询余量")
 						)
 					),
-					React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-						React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, "自动刷新间隔(分钟)"),
-						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } }),
-						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, "（最低 1）")
+					React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, opacity: autoRefreshOn ? 1 : 0.5 } },
+						React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, "定时刷新间隔(分钟)"),
+						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none", opacity: autoRefreshOn ? 1 : 0.55 } }),
+						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)", opacity: autoRefreshOn ? 1 : 0.6 } }, "（最低 1）")
 					)
 				),
 				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
