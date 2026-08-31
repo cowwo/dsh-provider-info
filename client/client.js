@@ -296,7 +296,6 @@ window.__ModuleLoader__.load({
 				t.style.transformOrigin = origin;
 				t.style.left = left + "px";
 				t.style.top = top + "px";
-				console.log("[DIAG-POS] anchor=(", Math.round(r.left) + "," + Math.round(r.top) + "," + Math.round(r.right) + "," + Math.round(r.bottom) + ") w=" + Math.round(r.width) + " | panel tw=" + tw + " th=" + (t.offsetHeight || 0) + " scale=" + scale + " | -> left=" + Math.round(left) + " top=" + Math.round(top) + " visualTop=" + Math.round(r.top - GAP - (t.offsetHeight || 0) * scale) + " | vw=" + vw + " vh=" + vh);
 			};
 
 			const resolveProviderCfg = async (provider) => {
