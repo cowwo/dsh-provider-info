@@ -225,6 +225,8 @@ window.__ModuleLoader__.load({
 				if (b.kind === "balance" && b.family === "deepseek") {
 					var bal = b.balance;
 					var infos = (bal && bal.balance_infos) || [];
+					// DeepSeek 接口 balance_infos 币种顺序不稳定，按币种字母升序稳定显示（CNY 在 USD 前）。
+					infos = infos.slice().sort((a, b2) => String(a.currency || "").localeCompare(String(b2.currency || "")));
 					var parts = infos.map((i) => currencySymbol(i.currency) + fmtNum2(i.total_balance));
 					var suffix = bal && bal.is_available === false ? "（余额不足）" : "";
 					return [row("余额", parts.length ? parts.join(" · ") + suffix : "—" + suffix)];
