@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **定时刷新**（默认关）+ **定时刷新间隔(分钟)**（默认 5，最低 1）：开启后浮窗打开时按设定间隔定时重新查询余量（未开启时下方的间隔输入框禁用变灰）。
 - 服务端 `providerBadge/settings` 端点（读取/写入插件设置，持久化于 `$DSH_HOME/dsh-provider-info.json`，`chmod 600`）。
 - 修复：悬浮面板向下弹出时超出视口被截断（加面板限高 + 内部滚动，并对方下弹出做视口底部钳制，保证面板始终完整落在屏内）。
+- 新增「字体大小」设置项（大 / 中 / 小，默认「中」＝当前大小；通过 zoom 整体缩放悬浮面板，视觉自适应）。
+- 余量「刷新」按钮与「余量」文字间距调小（head gap 4px→2px，去掉按钮额外 margin，padding 0 6px→0 4px）。
 
 ## [0.1.0] - 2026-08-25
 ### Added

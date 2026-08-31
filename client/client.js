@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 		let React = require("react");
 
 		// ---- 插件设置（持久化于 host 侧 json 文件）----
-		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5 };
+		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5, fontSize: 'middle' };
 		function loadSettings(rpc) {
 			try {
 				rpc.call("/api", "providerBadge/settings", { args: { request: { op: "get" } } }).then((resp) => {
@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
 						if (typeof s.hoverRefresh === "boolean") QSettings.hoverRefresh = s.hoverRefresh;
 						if (typeof s.autoRefreshOn === "boolean") QSettings.autoRefreshOn = s.autoRefreshOn;
 						if (typeof s.autoRefreshMin === "number") QSettings.autoRefreshMin = s.autoRefreshMin;
+						if (s.fontSize === "large" || s.fontSize === "middle" || s.fontSize === "small") QSettings.fontSize = s.fontSize;
 					}
 				}).catch(() => {});
 			} catch (e) { console.warn("[provider-badge] 读取设置失败", e); }
@@ -27,6 +28,7 @@ window.__ModuleLoader__.load({
 					QSettings.hoverRefresh = !!s.hoverRefresh;
 					QSettings.autoRefreshOn = !!s.autoRefreshOn;
 					QSettings.autoRefreshMin = Number(s.autoRefreshMin) || 5;
+					if (s.fontSize === "large" || s.fontSize === "middle" || s.fontSize === "small") QSettings.fontSize = s.fontSize;
 					return true;
 				}
 				return false;
@@ -314,7 +316,7 @@ window.__ModuleLoader__.load({
 				const box = document.createElement("div");
 				const head = document.createElement("div");
 				Object.assign(head.style, {
-					display: "flex", alignItems: "center", gap: "4px",
+					display: "flex", alignItems: "center", gap: "2px",
 					margin: "6px 0 4px", fontSize: 11, fontWeight: 600, color: "#aab2c0", letterSpacing: ".02em"
 				});
 				const label = document.createElement("span");
@@ -323,7 +325,7 @@ window.__ModuleLoader__.load({
 				btn.textContent = "刷新";
 				// 刷新按钮紧跟「余量」文字（红框位置），不再右对齐。
 				Object.assign(btn.style, {
-					marginLeft: "2px", padding: "0 6px", fontSize: 10, lineHeight: "14px", cursor: "pointer",
+					marginLeft: "0", padding: "0 4px", fontSize: 10, lineHeight: "14px", cursor: "pointer",
 					color: "var(--dsw-alias-label-secondary)", background: "transparent",
 					border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 6
 				});
@@ -394,6 +396,8 @@ window.__ModuleLoader__.load({
 						}
 					}
 
+					// 字体大小：大 = 放大整体，小 = 缩小整体，中 = 原样（zoom 均匀缩放，视觉随内容自适应）。
+					t.style.zoom = QSettings.fontSize === "large" ? "1.15" : QSettings.fontSize === "small" ? "0.85" : "1";
 					t.style.display = "block";
 					position(badge);
 				} catch (e) {
@@ -494,6 +498,7 @@ window.__ModuleLoader__.load({
 			const [hoverRefresh, setHoverRefresh] = React.useState(QSettings.hoverRefresh);
 			const [autoRefreshOn, setAutoRefreshOn] = React.useState(QSettings.autoRefreshOn);
 			const [min, setMin] = React.useState(String(QSettings.autoRefreshMin));
+			const [fontSize, setFontSize] = React.useState(QSettings.fontSize || "middle");
 			const [busy, setBusy] = React.useState(false);
 			const [status, setStatus] = React.useState(null);
 			const styleBase = { background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 12, padding: "14px" };
@@ -503,7 +508,7 @@ window.__ModuleLoader__.load({
 				m = Math.round(m);
 				setMin(String(m));
 				setBusy(true); setStatus(null);
-				saveSettings(rpc, { hoverRefresh: !!hoverRefresh, autoRefreshOn: !!autoRefreshOn, autoRefreshMin: m }).then((ok) => {
+				saveSettings(rpc, { hoverRefresh: !!hoverRefresh, autoRefreshOn: !!autoRefreshOn, autoRefreshMin: m, fontSize }).then((ok) => {
 					setBusy(false);
 					setStatus(ok ? "已保存" : "保存失败");
 				});
@@ -532,6 +537,14 @@ window.__ModuleLoader__.load({
 						React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, "定时刷新间隔(分钟)"),
 						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none", opacity: autoRefreshOn ? 1 : 0.55 } }),
 						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)", opacity: autoRefreshOn ? 1 : 0.6 } }, "（最低 1）")
+					)
+				),
+				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+					React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, "字体大小"),
+					React.createElement("select", { value: fontSize, onChange: (e) => setFontSize(e.target.value), style: { padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } },
+						React.createElement("option", { value: "small" }, "小"),
+						React.createElement("option", { value: "middle" }, "中"),
+						React.createElement("option", { value: "large" }, "大")
 					)
 				),
 				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
