@@ -118,7 +118,8 @@ window.__ModuleLoader__.load({
 					color: "#e6e9f0",
 					background: "#1f2430",
 					border: "1px solid #2c3242",
-					boxShadow: "0 6px 24px rgba(0,0,0,.28)"
+					boxShadow: "0 6px 24px rgba(0,0,0,.28)",
+					maxHeight: "calc(100vh - 120px)", overflowY: "auto", overflowX: "hidden"
 				});
 				document.body.appendChild(tip);
 				// 浮窗自身也监听鼠标：悬停到浮窗上时保持显示（可停留、可点刷新）。
@@ -142,6 +143,7 @@ window.__ModuleLoader__.load({
 				let top = r.top - th - 8;
 				left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
 				if (top < 8) top = r.bottom + 8; // 放不下就放到下方
+				if (top + th > window.innerHeight) top = Math.max(8, window.innerHeight - th - 8);
 				t.style.left = left + "px";
 				t.style.top = top + "px";
 			};
