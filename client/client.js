@@ -140,13 +140,25 @@ window.__ModuleLoader__.load({
 			const position = (anchor) => {
 				const r = anchor.getBoundingClientRect();
 				const t = ensureTip();
-				const tw = t.offsetWidth || 0;
+				const vw = window.innerWidth, vh = window.innerHeight;
+				const aboveSpace = Math.max(40, r.top - 8);          // 按钮上方可用高度（留 8px）
+				const belowSpace = Math.max(40, vh - r.bottom - 8);  // 按钮下方可用高度（留 8px）
+				// 面板限高：取「按钮上方/下方」里更大的可用空间，但不超过视口（上下各留 8px）。
+				// 这样一来，无论内容多高、按钮在哪，面板都紧贴按钮且整体不超屏；超出部分在面板内滚动。
+				const capH = Math.max(60, Math.min(vh - 16, Math.max(aboveSpace, belowSpace)));
+				t.style.maxHeight = capH + "px";
 				const th = t.offsetHeight || 0;
+				const tw = t.offsetWidth || 0;
 				let left = r.left + r.width / 2 - tw / 2;
-				let top = r.top - th - 8;
-				left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
-				if (top < 8) top = r.bottom + 8; // 放不下就放到下方
-				if (top + th > window.innerHeight) top = Math.max(8, window.innerHeight - th - 8);
+				left = Math.max(8, Math.min(left, vw - tw - 8));
+				let top;
+				if (aboveSpace >= th) {
+					// 上方能放下：面板底边贴按钮顶（留 8px）
+					top = r.top - th - 8;
+				} else {
+					// 上方放不下：放到按钮下方，底边贴屏幕下缘（面板高度已按 capH 限制）
+					top = Math.max(8, Math.min(r.bottom + 8, vh - capH - 8));
+				}
 				t.style.left = left + "px";
 				t.style.top = top + "px";
 			};
