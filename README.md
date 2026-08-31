@@ -25,6 +25,8 @@ DeepSeek Harness can be configured with several AI providers at once, and each p
   - DeepSeek: `GET /user/balance` (read-only, never charges you nor burns tokens).
   - OpenCode Go: `GET /v1/usage` (read-only usage windows).
   - The host caches the result per provider for 5 minutes, so hovering repeatedly doesn't hammer the provider API.
+  - The quota block has a **Refresh** button: click it to bypass the cache and immediately pull the latest quota (still read-only). Hovering normally uses the 5-minute cache.
+  - While your mouse is over the panel/button, message-stream scrolling won't hide the panel, so you can read it comfortably; it only hides on scroll after you move away.
 
 ## Screenshots
 

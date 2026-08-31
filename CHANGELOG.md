@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 已识别但暂不支持的厂商显示「暂不支持该供应商查询」。
   - 未配置密钥显示「未配置 API Key」，查询失败显示「查询失败」。
 - 服务端 `providerBadge/balance` 端点（读凭据 + 查询厂商接口，host 端按 provider 5 分钟缓存）。
-- 依赖：新增可选 peer `@deepseek-ai/dsh-credentials`。
+- 余量支持手动「刷新」按钮：点击绕过 5 分钟缓存强制拉取最新；悬停时仍走 5 分钟缓存兜底。
+- 悬浮浮层支持鼠标停留：鼠标在浮窗/按钮上时，文字流滚动不再隐藏浮窗（离开悬停区才因滚动隐藏）。
 
 ## [0.1.0] - 2026-08-25
 ### Added
