@@ -250,13 +250,8 @@ window.__ModuleLoader__.load({
 			};
 
 			// 把 balanceRows 的结果映射为 DOM 行元素。
-			const buildRowEls = (b) => {
-				const objs = balanceRows(b);
-				if (!objs) return null;
-				var els = [];
-				for (var i = 0; i < objs.length; i++) els.push(row(objs[i].label, objs[i].value));
-				return els;
-			};
+			// balanceRows 已经返回现成的 DOM 行元素（每个是 row() 的结果），直接透传即可。
+			const buildRowEls = (b) => balanceRows(b);
 			// 点「刷新」：绕过 client + host 缓存，强制重新查询，并只重绘余量数据行。
 			const onRefreshBalance = async () => {
 				const ctx2 = lastBalanceCtx;
