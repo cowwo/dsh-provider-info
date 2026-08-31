@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
 			let lastBalanceBox = null;
 			let lastBalanceCtx = null;
 
-			const row = (label, value, capH) => {
+			const row = (label, value) => {
 				const r = document.createElement("div");
 				Object.assign(r.style, {
 					display: "flex", justifyContent: "space-between", gap: "16px",
@@ -95,7 +95,6 @@ window.__ModuleLoader__.load({
 				Object.assign(l.style, { color: "#8a93a5", flex: "none" });
 				const v = document.createElement("span");
 				v.textContent = value || UNKNOWN;
-				if (typeof capH === "string" && capH) { v.style.maxHeight = capH; v.style.overflowY = "auto"; }
 				Object.assign(v.style, { color: "#e6e9f0", flex: "1 1 auto", minWidth: "0", whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "right" });
 				r.appendChild(l);
 				r.appendChild(v);
@@ -401,7 +400,7 @@ window.__ModuleLoader__.load({
 					t.appendChild(row("上下文窗口", mi && mi.contextWindow != null ? String(mi.contextWindow) : null));
 					t.appendChild(row("最大 token", mi && mi.maxTokens != null ? String(mi.maxTokens) : null));
 					t.appendChild(row("输入模态", mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
-					t.appendChild(row("兼容信息", compatText, "44px"));
+					t.appendChild(row("兼容信息", compatText));
 					// ---- 余量（余额/限额）：已识别厂商才展示 ----
 					// 悬停立即刷新：开启时每次悬停都强制重查（绕缓存）；否则走默认 5 分钟缓存。
 					const bal = await resolveBalance(provider, cfg, QSettings.hoverRefresh);
