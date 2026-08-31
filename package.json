@@ -1,6 +1,6 @@
 {
   "name": "dsh-provider-info",
-  "version": "0.3.0",
+  "version": "0.5.1",
   "description": "在模型座左侧显示当前模型所属提供商（显示名称优先，回退 Provider ID）。纯运行时装饰，不改动原生页面源码。",
   "type": "module",
   "main": "lib/index.js",
