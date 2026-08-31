@@ -167,6 +167,7 @@ window.__ModuleLoader__.load({
 			const HIDE_DELAY = 100;
 			const UNKNOWN = "未提供"; // 兼容外部引用（实际显示走 tx("unknown")）
 			let badge = null;
+			let seatBtnEl = null;
 			let noticed = false;
 			let lastText = null;
 			// 缓存：provider 配置（settings.describe 的 llm-pi-ai.providers[provider]）与目录真值（rpc modelInfo）
@@ -265,32 +266,37 @@ window.__ModuleLoader__.load({
 				const r = anchor.getBoundingClientRect();
 				const t = ensureTip();
 				const vw = window.innerWidth, vh = window.innerHeight;
-				const aboveSpace = Math.max(40, r.top - 8);          // 按钮上方可用高度（留 8px）
-				const belowSpace = Math.max(40, vh - r.bottom - 8);  // 按钮下方可用高度（留 8px）
-				// 字体缩放系数（transform: scale(...)），用于换算"视觉高度"占用空间。
 				const m = /scale\((\d+(?:\.\d+)?)\)/.exec(t.style.transform || "");
 				const scale = m ? parseFloat(m[1]) : 1;
-				// 面板限高：取「按钮上方/下方」里更大的可用空间，并除以缩放系数，
-				// 保证缩放后的视觉高度也不超过该空间（不超屏）；超出部分在面板内滚动。
-				const sideSpace = Math.max(0, Math.max(aboveSpace, belowSpace) - 8) / scale;
-				const capH = Math.max(60, Math.min(vh - 16, sideSpace));
-				t.style.maxHeight = capH + "px";
-				const th = t.offsetHeight || 0;
+				const GAP = 8;
+				const aboveSpace = r.top - GAP;          // 选择器上方可用高度
+				const belowSpace = vh - r.bottom - GAP;  // 选择器下方可用高度
+				let top, origin;
+				if (aboveSpace >= 140) {
+					// 上方优先：面板永远贴选择器上方 —— 限高=上方可用÷缩放系数（保证视觉高度不超），
+					// 底边贴选择器顶（transform-origin: bottom center → 大中小的视觉底边都贴在选择器上），
+					// 面板放不下就在面板内滚动，绝不挪到别处。
+					// 视觉顶/底都留 8px：th*scale ≤ aboveSpace-16，保证缩放后视觉完全不超屏
+					const capH = Math.max(60, Math.min(vh - 16, Math.floor((aboveSpace - 16) / scale)));
+					t.style.maxHeight = capH + "px";
+					const th = t.offsetHeight || 0;
+					top = r.top - th - GAP;
+					origin = "bottom center";
+				} else {
+					// 选择器几乎贴屏顶：才放选择器下方，同样限高+贴边
+					const capH = Math.max(60, Math.min(vh - 16, Math.floor((belowSpace - 16) / scale)));
+					t.style.maxHeight = capH + "px";
+					const th = t.offsetHeight || 0;
+					top = r.bottom + GAP;
+					origin = "top center";
+				}
 				const tw = t.offsetWidth || 0;
 				let left = r.left + r.width / 2 - tw / 2;
 				left = Math.max(8, Math.min(left, vw - tw - 8));
-				let top;
-				if (aboveSpace >= th) {
-					// 上方能放下：面板底边贴按钮顶（留 8px），缩放锚定底边中心 → 大中小底边都贴着选择器
-					top = r.top - th - 8;
-					t.style.transformOrigin = "bottom center";
-				} else {
-					// 上方放不下：放到按钮下方，顶边贴按钮底（留 8px），缩放锚定顶边中心 → 大中小顶边都贴着选择器
-					top = Math.max(8, Math.min(r.bottom + 8, vh - capH - 8));
-					t.style.transformOrigin = "top center";
-				}
+				t.style.transformOrigin = origin;
 				t.style.left = left + "px";
 				t.style.top = top + "px";
+				console.log("[DIAG-POS] anchor=(", Math.round(r.left) + "," + Math.round(r.top) + "," + Math.round(r.right) + "," + Math.round(r.bottom) + ") w=" + Math.round(r.width) + " | panel tw=" + tw + " th=" + (t.offsetHeight || 0) + " scale=" + scale + " | -> left=" + Math.round(left) + " top=" + Math.round(top) + " visualTop=" + Math.round(r.top - GAP - (t.offsetHeight || 0) * scale) + " | vw=" + vw + " vh=" + vh);
 			};
 
 			const resolveProviderCfg = async (provider) => {
@@ -543,7 +549,8 @@ window.__ModuleLoader__.load({
 					// 这样无论大中小，面板底边都始终贴着选择器，不会像 zoom（左上角为原点）一样切换时位置飘移。
 					t.style.transform = QSettings.fontSize === "large" ? "scale(1.15)" : QSettings.fontSize === "small" ? "scale(0.85)" : "scale(1)";
 					t.style.display = "block";
-					position(badge);
+					// 锚定整个模型选择器（而非小徽章）：弹窗永远紧贴选择器上方，水平与它中心对齐。
+					position(seatBtnEl || badge);
 				} catch (e) {
 					console.warn("[provider-badge] 浮层刷新失败", e);
 				}
@@ -584,6 +591,7 @@ window.__ModuleLoader__.load({
 				try {
 					const seatBtn = document.querySelector(SLOT + " button");
 					if (!seatBtn) return;
+					seatBtnEl = seatBtn;
 					if (!badge) {
 						badge = document.createElement("span");
 						Object.assign(badge.style, {
