@@ -284,15 +284,16 @@ window.__ModuleLoader__.load({
 				const box = document.createElement("div");
 				const head = document.createElement("div");
 				Object.assign(head.style, {
-					display: "flex", alignItems: "center", gap: "10px",
+					display: "flex", alignItems: "center", gap: "4px",
 					margin: "6px 0 4px", fontSize: 11, fontWeight: 600, color: "#aab2c0", letterSpacing: ".02em"
 				});
 				const label = document.createElement("span");
 				label.textContent = "余量";
 				const btn = document.createElement("button");
 				btn.textContent = "刷新";
+				// 刷新按钮紧跟「余量」文字（红框位置），不再右对齐。
 				Object.assign(btn.style, {
-					marginLeft: "auto", padding: "0 6px", fontSize: 10, lineHeight: "14px", cursor: "pointer",
+					marginLeft: "2px", padding: "0 6px", fontSize: 10, lineHeight: "14px", cursor: "pointer",
 					color: "var(--dsw-alias-label-secondary)", background: "transparent",
 					border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 6
 				});
