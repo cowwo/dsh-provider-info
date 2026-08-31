@@ -76,6 +76,7 @@ Open **设置 → 提供商余量** to configure the quota refresh behavior:
 
 - **显示悬浮窗自动刷新** (default checked): when you hover the badge and the panel opens, re-query the latest quota immediately (bypassing the 5-minute cache).
 - **定时刷新** (default unchecked) + **定时刷新间隔(分钟)** (default 5, minimum 1): while the hover panel is open, periodically re-query the remaining quota on the configured interval. When 定时刷新 is off, the interval input is disabled and greyed.
+- **界面语言** (default 跟随系统(dsh)): choose the UI language of the hover panel and this settings page — 跟随系统(dsh) follows the DSH interface language (Chinese UI → Chinese, English UI → English), 中文 forces Chinese, English forces English. Forcing a language only affects this plugin, never DSH's own language settings.
 
 Changes are saved to `$DSH_HOME/dsh-provider-info.json` and apply immediately.
 

@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复：兼容信息长 JSON 不再无限撑高面板（限高 44px + 内部滚动），使大/中/小字体下弹窗都能紧贴模型选择器、不再顶到屏幕中部。
 - 修复：弹窗定位改用「以选择器为锚」——字体缩放从老 zoom(左上角原点)改为 transform scale + transform-origin 动态跟随（贴按钮上方用 bottom center、下方用 top center），并按缩放系数换算面板限高，保证大/中/小始终紧贴模型选择器且不超屏。
 - 调整：移除「兼容信息」行的局部限高滚动（恢复完整显示）；弹窗仅在整体超出屏幕时整个弹窗滚动，不再出现局部小块滚动条。
+- 新增：i18n 多语言支持（中文/English）——设置页新增「界面语言」选项（跟随系统(dsh)/中文/English，默认跟随系统(dsh)）；注册到 DSH locale 命名空间，跟随系统时与 DSH 界面语言一致；强制语言只影响本插件弹窗与设置页，不改 DSH 全局语言。
 
 ## [0.1.0] - 2026-08-25
 ### Added
