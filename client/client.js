@@ -239,7 +239,8 @@ window.__ModuleLoader__.load({
 						var title = w.label || w.key || "窗口";
 						var pct = (w.percent !== null && w.percent !== undefined) ? fmtPct(w.percent) : null;
 						var detail = pct || "";
-						if (w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
+						// 仅当 percent 有效时才折算金额，避免 null 时拼出误导的 $0.00。
+						if (pct && w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
 						if (w.rateLimited) detail += " 已限流";
 						var cd = countdownStr(w.resetsAt);
 						rows.push(row(title, detail + (cd ? " · " + cd : "")));
