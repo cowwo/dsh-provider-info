@@ -471,12 +471,17 @@ window.__ModuleLoader__.load({
 			tick();
 			// 读取持久化设置（悬停立即刷新 / 自动刷新间隔），并开启自动刷新调度。
 			loadSettings(rpc);
-			const autoRefresh = () => {
-				if (!QSettings.autoRefreshOn) return;
-				if (!tip || tip.style.display !== "block") return;
-				if (lastBalanceCtx && lastBalanceBox) onRefreshBalance();
+			// 自调度 setTimeout：每次循环重新读取当前间隔与开关，改设置后无需重启即生效。
+			const scheduleAutoRefresh = () => {
+				const minutes = Math.max(1, QSettings.autoRefreshMin || 5);
+				setTimeout(() => {
+					try {
+						if (QSettings.autoRefreshOn && tip && tip.style.display === "block" && lastBalanceCtx && lastBalanceBox) onRefreshBalance();
+					} catch (e) { console.warn("[provider-badge] 自动刷新失败", e); }
+					scheduleAutoRefresh();
+				}, minutes * 60 * 1000);
 			};
-			setInterval(autoRefresh, Math.max(1, QSettings.autoRefreshMin || 5) * 60 * 1000);
+			scheduleAutoRefresh();
 		}
 		//#endregion
 
