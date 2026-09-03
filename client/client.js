@@ -62,7 +62,22 @@ window.__ModuleLoader__.load({
 			"settings.saving": "保存中…",
 			"settings.save": "保存",
 			"settings.saved": "已保存",
-			"settings.saveFailed": "保存失败"
+			"settings.saveFailed": "保存失败",
+			// 余量表
+			"quota.title": "全部提供商余量",
+			"quota.subtitle": "汇总所有已配置提供商的余额/限额，复用悬浮窗查询结果",
+			"quota.col.provider": "提供商",
+			"quota.col.rolling": "5小时",
+			"quota.col.weekly": "7天",
+			"quota.col.monthly": "30天",
+			"quota.col.balance": "余额",
+			"quota.col.action": "操作",
+			"quota.refreshAll": "全部刷新",
+			"quota.refreshAllBusy": "刷新中…",
+			"quota.empty": "暂无提供商配置",
+			"quota.loading": "加载中…",
+			"quota.expandAll": "展开全部",
+			"quota.collapse": "收起"
 		};
 		const en = {
 			// 弹窗
@@ -118,7 +133,22 @@ window.__ModuleLoader__.load({
 			"settings.saving": "Saving…",
 			"settings.save": "Save",
 			"settings.saved": "Saved",
-			"settings.saveFailed": "Save failed"
+			"settings.saveFailed": "Save failed",
+			// 余量表
+			"quota.title": "All provider quotas",
+			"quota.subtitle": "Summarize balance/limits of all configured providers, reusing hover query results",
+			"quota.col.provider": "Provider",
+			"quota.col.rolling": "5h",
+			"quota.col.weekly": "7d",
+			"quota.col.monthly": "30d",
+			"quota.col.balance": "Balance",
+			"quota.col.action": "Action",
+			"quota.refreshAll": "Refresh all",
+			"quota.refreshAllBusy": "Refreshing…",
+			"quota.empty": "No providers configured",
+			"quota.loading": "Loading…",
+			"quota.expandAll": "Show all",
+			"quota.collapse": "Collapse"
 		};
 		/** 当前生效语言："system"（跟随 DSH）时读 DSH 当前语言；"en"/"zh" 为手动强制。 */
 		let resolveLang = () => "zh";
@@ -159,6 +189,103 @@ window.__ModuleLoader__.load({
 				return false;
 			}).catch((e) => { console.warn("[provider-badge] 保存设置失败", e); return false; });
 		}
+
+		//#region 共享余量存储：悬浮窗与设置页共用同一份查询结果
+		// 悬浮窗查过的 provider 余量会被写入这里，设置页直接复用（不重复打厂商接口）。
+		// host 端 providerBadge/balance 另有 5 分钟缓存，二者叠加避免频繁请求。
+		const quotaShared = { api: null, rpc: null };
+		const quotaCache = new Map(); // key: provider 路由键 -> { fetchedAt, value }
+		/** 读取/枚举所有可查询余量的提供商（官方 + 自定义，host 端 providerBadge/providers 合并）。 */
+		async function fetchProviderList() {
+			const rpc = quotaShared.rpc;
+			if (!rpc) return [];
+			try {
+				const resp = await rpc.call("/api", "providerBadge/providers", { args: { request: {} } });
+				const list = resp && resp.ok && resp.value && Array.isArray(resp.value.providers) ? resp.value.providers : [];
+				// 规整字段，确保每条都有 provider 键。
+				return list.filter((p) => p && p.provider).map((p) => ({
+					provider: p.provider,
+					displayName: p.displayName || null,
+					baseURL: p.baseURL || null,
+					apiKeyEnv: p.apiKeyEnv || null
+				}));
+			} catch (e) {
+				console.warn("[provider-badge] 枚举提供商失败", e);
+				return [];
+			}
+		}
+		/** 查询单个 provider 余量；命中 client 缓存直接回，命中后回写缓存。 */
+		async function fetchProviderQuota(provider, cfg, force) {
+			if (!quotaShared.rpc) return null;
+			const cached = quotaCache.get(provider);
+			if (!force && cached && cached.value && cached.value.recognized && cached.value.supported && !cached.value.error) {
+				return cached.value;
+			}
+			try {
+				const resp = await quotaShared.rpc.call("/api", "providerBadge/balance", {
+					args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null, force: !!force } }
+				});
+				const b = resp && resp.ok ? (resp.value || null) : null;
+				if (b && b.recognized && b.supported && !b.error) {
+					quotaCache.set(provider, { fetchedAt: Date.now(), value: b });
+				} else {
+					quotaCache.delete(provider);
+				}
+				return b;
+			} catch (e) {
+				console.warn("[provider-badge] 余量查询失败", e);
+				quotaCache.delete(provider);
+				return null;
+			}
+		}
+		// ---- 余量结果 → 表格单元格归一化（供设置页表格使用，自包含不依赖悬浮闭包）----
+		const _num2 = (n) => { var v = Number(n); return v === v ? v.toFixed(2) : ""; };
+		const _pct = (n) => { var v = Number(n); return v === v ? Math.round(v) + "%" : ""; };
+		const _sym = (code) => code === "CNY" ? "¥" : code === "USD" ? "$" : code === "EUR" ? "€" : (code || "") + " ";
+		/** 把 balance 结果归一化成表格五列要显示的纯文本；无数据的维度返回空串。 */
+		function quotaCells(b) {
+			const cells = { rolling: "", weekly: "", monthly: "", balance: "" };
+			if (!b) return cells;
+			// 未识别：不展示任何数据（表格保留空行）。
+			if (b.recognized === false) return cells;
+			// 已识别但不支持查询 / 出错：只在「余额」列给出状态文案。
+			if (!b.supported || b.error) {
+				cells.balance = quotaErrorText(b);
+				return cells;
+			}
+			// balance 家族（DeepSeek）：余额列放金额。
+			if (b.kind === "balance" && b.family === "deepseek") {
+				const infos = ((b.balance && b.balance.balance_infos) || []).slice()
+					.sort((a, c) => String(a.currency || "").localeCompare(String(c.currency || "")));
+				const parts = infos.map((i) => _sym(i.currency) + _num2(i.total_balance));
+				cells.balance = parts.length ? parts.join(" / ") : "";
+				return cells;
+			}
+			// limits 家族（OpenCode Go / 其它 percent 型）：三窗口各放百分比。
+			if (b.kind === "limits") {
+				const wins = b.windows || [];
+				for (const w of wins) {
+					const k = w.key;
+					const pct = (w.percent !== null && w.percent !== undefined) ? _pct(w.percent) : "";
+					if (k === "rolling" || k === "5小时") cells.rolling = pct;
+					else if (k === "weekly" || k === "7天") cells.weekly = pct;
+					else if (k === "monthly" || k === "30天") cells.monthly = pct;
+				}
+			}
+			return cells;
+		}
+		/** 余量错误/不支持状态 → 文案（复用 tx 词条，与悬浮窗一致）。 */
+		function quotaErrorText(b) {
+			if (!b) return "";
+			if (!b.supported && b.error === "not-supported") return tx("noSupport");
+			if (b.error === "no-api-key") return tx("noApiKey");
+			if (b.error === "subscription-required") return tx("subscriptionRequired");
+			if (b.error === "unauthorized") return tx("unauthorized");
+			if (b.error === "http-404") return tx("http404");
+			if (b.error === "missing-usage" || b.error === "missing-windows" || b.error === "no-data") return tx("missingUsage");
+			return tx("queryFailed");
+		}
+		//#endregion
 
 		//#region 提供商徽章 + 悬浮信息浮层
 		function installProviderBadge(sessions, api, rpc) {
@@ -355,33 +482,17 @@ window.__ModuleLoader__.load({
 				if (hours > 0) return hours + "h" + minutes + "m";
 				return minutes + "m";
 			};
-			const balanceCache = { key: null, value: null };
-			const resolveBalance = async (provider, cfg, force) => {
-				const key = provider;
-				// 只缓存「成功且有数据」的结果；错误/未识别结果不缓存，避免临时故障被长期记住。
-				// force=true（手动刷新）时绕过 client 缓存，并把 force 透传给 host 以绕过其 5 分钟缓存。
-				const cacheable = !force && balanceCache.key === key && balanceCache.value && balanceCache.value.recognized && balanceCache.value.supported && !balanceCache.value.error;
-				if (cacheable) return balanceCache.value;
-				try {
-					const resp = await rpc.call("/api", "providerBadge/balance", {
-						args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null, force: !!force } }
-					});
-					const b = resp && resp.ok ? (resp.value || null) : null;
-					if (b && b.recognized && b.supported && !b.error) {
-						balanceCache.key = key;
-						balanceCache.value = b;
-					} else {
-						balanceCache.key = null;
-						balanceCache.value = null;
-					}
-					return b;
-				} catch (e) {
-					console.warn("[provider-badge] balance 失败", e);
-					balanceCache.key = null;
-					balanceCache.value = null;
-					return null;
-				}
+			// 识图开启时，`value.current.provider` 会被 DSH 分流成一个合成 provider（如 `ocgo-02-vision`），
+			// 它在 `llm-pi-ai.providers` 里没有配置条目（baseURL 取不到），导致家族识别失败、余量不展示。
+			// 余量识别应始终基于「主模型座选中的主 provider」，而不是识图分流出的 vision provider：
+			// 剥掉 `-vision` 等后缀还原主 provider，用主 provider 的配置去识别厂商 + 查询余量。
+			// 注意：仅用于余量查询，不影响浮层里 Provider ID / 显示名称 / API 地址等任何页面显示。
+			const bareProvider = (provider) => {
+				if (typeof provider !== "string" || !provider) return provider;
+				return provider.replace(/(?:-vision|-vision-exp|-vision-preview|-vision-latest)$/i, "");
 			};
+			// 悬浮窗余量查询：直接走模块级共享存储，供设置页复用同一份结果。
+			const resolveBalance = (provider, cfg, force) => fetchProviderQuota(provider, cfg, force);
 			// 余量浮层区块：仅 DeepSeek（余额）与 OpenCode Go（5h/周/月限额）查询，
 			// 已识别但不支持的厂商显示「暂不支持该供应商查询」，未识别的不展示。
 			const balanceRows = (b) => {
@@ -532,12 +643,17 @@ window.__ModuleLoader__.load({
 					t.appendChild(row(tx("inputModes"), mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
 					t.appendChild(row(tx("compatInfo"), compatText));
 					// ---- 余量（余额/限额）：已识别厂商才展示 ----
+					// 识别用 provider 与展示用 provider 解耦：识图开启时 current.provider 是 `xxx-vision`，
+					// 这里剥掉 -vision 后缀还原主 provider，用主 provider 的配置（baseURL/密钥）去识别厂商并查余量；
+					// 浮层上方的 Provider ID / 显示名称 / API 地址 / 密钥等展示字段仍用原始 provider，不受影响。
+					const balanceProvider = bareProvider(provider);
+					const balanceCfg = balanceProvider === provider ? cfg : await resolveProviderCfg(balanceProvider);
 					// 悬停立即刷新：开启时每次悬停都强制重查（绕缓存）；否则走默认 5 分钟缓存。
-					const bal = await resolveBalance(provider, cfg, QSettings.hoverRefresh);
+					const bal = await resolveBalance(balanceProvider, balanceCfg, QSettings.hoverRefresh);
 					if (bal && bal.recognized) {
 						const mb = mountBalanceBlock(t);
 						lastBalanceBox = mb;
-						lastBalanceCtx = { provider, cfg };
+						lastBalanceCtx = { provider: balanceProvider, cfg: balanceCfg };
 						const els = buildRowEls(bal);
 						if (els && els.length) {
 							for (var bi = 0; bi < els.length; bi++) mb.body.appendChild(els[bi]);
@@ -646,6 +762,7 @@ window.__ModuleLoader__.load({
 		// ----「提供商余量」设置页 ----
 		function ProviderSettingsPage(props) {
 			const rpc = props.rpc;
+			const api = props.api;
 			const [hoverRefresh, setHoverRefresh] = React.useState(QSettings.hoverRefresh);
 			const [autoRefreshOn, setAutoRefreshOn] = React.useState(QSettings.autoRefreshOn);
 			const [min, setMin] = React.useState(String(QSettings.autoRefreshMin));
@@ -653,7 +770,74 @@ window.__ModuleLoader__.load({
 			const [language, setLanguage] = React.useState(QSettings.language || "system");
 			const [busy, setBusy] = React.useState(false);
 			const [status, setStatus] = React.useState(null);
+			// ---- 余量表状态 ----
+			const [providers, setProviders] = React.useState([]);       // [{provider, displayName, baseURL, apiKeyEnv}]
+			const [quotaRow, setQuotaRow] = React.useState({});        // provider -> { result }（balance 归一前原始）
+			const [quotaLoaded, setQuotaLoaded] = React.useState(false);
+			const [refreshing, setRefreshing] = React.useState({});    // provider -> true（单行刷新中）
+			const [refreshAllBusy, setRefreshAllBusy] = React.useState(false);
+			const [showAllQuota, setShowAllQuota] = React.useState(false); // 是否展开全部（含无数据/未识别厂商）
 			const styleBase = { background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 12, padding: "14px" };
+			// 该 provider 是否有「可展示的数据」（余额/限额已查得，或有明确状态文案），
+			// 无数据/未识别的官方厂商在收起态下隐藏，展开全部才显示。
+			// 「尚未查询到结果」的行先当作有数据显示，避免逐项查询期间表格闪烁空白。
+			const quotaHasData = (p) => {
+				const row = quotaRow[p.provider];
+				if (row === undefined) return true;    // 尚未查到，先显示
+				if (row === null) return true;         // 查询失败，先显示
+				if (row.recognized === false) return false; // 未识别厂商
+				const c = quotaCells(row);
+				if (c.balance || c.rolling || c.weekly || c.monthly) return true; // 有余额或限额或状态文案
+				return false;
+			};
+			const visibleProviders = showAllQuota ? providers : providers.filter(quotaHasData);
+			const hiddenCount = providers.length - visibleProviders.length;
+			// 载入：枚举 provider 列表，然后逐个取余量（复用模块级 quotaCache，命中即不请求）。
+			React.useEffect(() => {
+				let alive = true;
+				if (api) quotaShared.api = api;
+				(async () => {
+					const list = await fetchProviderList();
+					if (!alive) return;
+					setProviders(list);
+					setQuotaLoaded(true);
+					const next = {};
+					for (const p of list) {
+						const b = await fetchProviderQuota(p.provider, p, false);
+						next[p.provider] = b;
+					}
+					if (!alive) return;
+					// 合并已有（避免覆盖手工刷新结果）
+					setQuotaRow((prev) => ({ ...prev, ...next }));
+				})();
+				return () => { alive = false; };
+			}, []);
+			// 单行刷新：绕过缓存强查。
+			const refreshRow = async (p) => {
+				setRefreshing((r) => ({ ...r, [p.provider]: true }));
+				try {
+					const b = await fetchProviderQuota(p.provider, p, true);
+					setQuotaRow((prev) => ({ ...prev, [p.provider]: b }));
+				} finally {
+					setRefreshing((r) => ({ ...r, [p.provider]: false }));
+				}
+			};
+			// 全部刷新：并发强查所有。
+			const refreshAll = async () => {
+				setRefreshAllBusy(true);
+				try {
+					const list = providers.length ? providers : await fetchProviderList();
+					setProviders(list);
+					const next = {};
+					await Promise.all(list.map(async (p) => {
+						const b = await fetchProviderQuota(p.provider, p, true);
+						next[p.provider] = b;
+					}));
+					setQuotaRow((prev) => ({ ...prev, ...next }));
+				} finally {
+					setRefreshAllBusy(false);
+				}
+			};
 			const save = () => {
 				let m = Number(min);
 				if (!Number.isFinite(m) || m < 1) m = 5;
@@ -665,7 +849,16 @@ window.__ModuleLoader__.load({
 					setStatus(ok ? tx("settings.saved") : tx("settings.saveFailed"));
 				});
 			};
-			return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14, maxWidth: 520 } },
+			// 表头单元格样式辅助（含竖线分隔）。
+			const th = (text, opt) => React.createElement("th", {
+				style: {
+					padding: "6px 8px", fontSize: 11, fontWeight: 600, color: "var(--dsw-alias-label-secondary)",
+					borderBottom: "1px solid var(--dsw-alias-border-l2)", whiteSpace: "nowrap",
+					borderLeft: opt && opt.first ? "none" : "1px solid var(--dsw-alias-border-l2)",
+					textAlign: opt && opt.left ? "left" : "right"
+				}
+			}, text);
+			return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14, maxWidth: 720 } },
 				React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
 					React.createElement("h2", { style: { margin: 0, fontSize: 17, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, tx("settings.title")),
 					React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.subtitle"))
@@ -707,7 +900,58 @@ window.__ModuleLoader__.load({
 						React.createElement("option", { value: "zh" }, tx("settings.langZh"))
 					)
 				),
-				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+				// ---- 余量表卡片 ----
+				React.createElement("div", { style: { ...styleBase, display: "flex", flexDirection: "column", gap: 10 } },
+					React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+						React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 2 } },
+							React.createElement("span", { style: { fontSize: 14, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, tx("quota.title")),
+							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("quota.subtitle"))
+						),
+						React.createElement("button", { type: "button", onClick: refreshAll, disabled: refreshAllBusy || !providers.length, style: { border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: providers.length && !refreshAllBusy ? "pointer" : "default", background: "transparent", color: "var(--dsw-alias-label-primary)", opacity: (refreshAllBusy || !providers.length) ? 0.55 : 1 } }, refreshAllBusy ? tx("quota.refreshAllBusy") : tx("quota.refreshAll"))
+					),
+					providers.length === 0
+						? React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, quotaLoaded ? tx("quota.empty") : tx("quota.loading"))
+						: React.createElement("div", { style: { overflowX: "auto", maxWidth: "100%" } },
+							React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 460 } },
+								React.createElement("thead", null,
+									React.createElement("tr", { style: { borderBottom: "1px solid var(--dsw-alias-border-l2)" } },
+										th(tx("quota.col.provider"), { left: true, first: true }),
+										th(tx("quota.col.rolling")),
+										th(tx("quota.col.weekly")),
+										th(tx("quota.col.monthly")),
+										th(tx("quota.col.balance")),
+										th(tx("quota.col.action"))
+									)
+								),
+								React.createElement("tbody", null,
+									visibleProviders.map((p) => {
+										const row = quotaRow[p.provider];
+										const c = row ? quotaCells(row) : { rolling: "", weekly: "", monthly: "", balance: "" };
+										const cellStyle = { padding: "6px 8px", borderBottom: "1px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" };
+										const nameStyle = { ...cellStyle, color: "var(--dsw-alias-label-secondary)", fontWeight: 500, borderLeft: "none" };
+										const numStyle = { ...cellStyle, textAlign: "right", borderLeft: "1px solid var(--dsw-alias-border-l2)" };
+										const balStyle = { ...numStyle, color: row && (row.error || !row.supported) ? "var(--dsw-alias-label-tertiary)" : "var(--dsw-alias-label-primary)" };
+										const isRefreshing = !!refreshing[p.provider];
+										return React.createElement("tr", { key: p.provider, style: { borderBottom: "1px solid var(--dsw-alias-border-l2)" } },
+											React.createElement("td", { style: nameStyle }, p.displayName || p.provider),
+											React.createElement("td", { style: numStyle }, c.rolling),
+											React.createElement("td", { style: numStyle }, c.weekly),
+											React.createElement("td", { style: numStyle }, c.monthly),
+											React.createElement("td", { style: balStyle }, c.balance),
+											React.createElement("td", { style: { ...numStyle, textAlign: "right" } },
+												React.createElement("button", { type: "button", onClick: () => refreshRow(p), disabled: isRefreshing, style: { padding: "2px 8px", fontSize: 11, cursor: isRefreshing ? "default" : "pointer", background: "transparent", color: "var(--dsw-alias-label-secondary)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 6, opacity: isRefreshing ? 0.55 : 1 } }, isRefreshing ? tx("refreshing") : tx("refresh"))
+											)
+										);
+									})
+								)
+							)
+						),
+					// 展开/收起切换：只要有「无数据的官方厂商」就一直显示（展开后仍可收起）。
+					providers.length > 0 && hiddenCount > 0
+						? React.createElement("button", { type: "button", onClick: () => setShowAllQuota((v) => !v), style: { alignSelf: "flex-start", padding: "3px 10px", fontSize: 12, cursor: "pointer", background: "transparent", color: "var(--dsw-alias-label-secondary)", border: "1px dashed var(--dsw-alias-border-l2)", borderRadius: 6 } }, showAllQuota ? tx("quota.collapse") : (tx("quota.expandAll") + "（" + hiddenCount + "）"))
+						: null
+				),
+				React.createElement("div", { style: { position: "sticky", bottom: 0, display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", marginTop: 2, background: "var(--dsw-alias-bg-base)", borderTop: "1px solid var(--dsw-alias-border-l2)", boxShadow: "0 -8px 16px -12px rgba(0,0,0,0.5)", zIndex: 2 } },
 					React.createElement("button", { type: "button", onClick: save, disabled: busy, style: { background: "var(--dsw-alias-label-primary)", color: "var(--dsw-alias-bg-layer-3)", border: "none", borderRadius: 8, padding: "6px 16px", fontSize: 13, cursor: "pointer", fontWeight: 500, opacity: busy ? 0.5 : 1 } }, busy ? tx("settings.saving") : tx("settings.save")),
 					status ? React.createElement("span", { style: { fontSize: 13, color: status === "已保存" ? "var(--dsw-alias-state-success-primary)" : "var(--dsw-alias-state-error-primary)" } }, status) : null
 				)
@@ -731,6 +975,8 @@ window.__ModuleLoader__.load({
 				} catch (e) { return "zh"; }
 			};
 			ctx.inject(["sessions", "connection", "slots"], (scoped) => {
+				quotaShared.api = scoped.connection.api;
+				quotaShared.rpc = scoped.connection.rpc;
 				try {
 					installProviderBadge(scoped.sessions, scoped.connection.api, scoped.connection.rpc);
 				} catch (e) {
@@ -744,7 +990,7 @@ window.__ModuleLoader__.load({
 							id: "provider-info",
 							order: 13,
 							label: tx("settings.entry")
-						}, (props) => React.createElement(ProviderSettingsPage, { ...props, rpc: scoped.connection.rpc })));
+						}, (props) => React.createElement(ProviderSettingsPage, { ...props, rpc: scoped.connection.rpc, api: scoped.connection.api })));
 					} catch (e) {
 						console.warn("[provider-badge] 注册设置页失败", e);
 					}
