@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
 			"compatInfo": "兼容信息",
 			"balance": "余量",
 			"balanceName": "余额",
+			"monthlyQuota": "月度额度",
 			"refresh": "刷新",
 			"refreshing": "刷新中…",
 			"unknown": "未提供",
@@ -98,6 +99,7 @@ window.__ModuleLoader__.load({
 			"compatInfo": "Compat info",
 			"balance": "Balance",
 			"balanceName": "Balance",
+			"monthlyQuota": "Monthly quota",
 			"refresh": "Refresh",
 			"refreshing": "Refreshing…",
 			"unknown": "Not provided",
@@ -261,7 +263,7 @@ window.__ModuleLoader__.load({
 				cells.balance = parts.length ? parts.join(" / ") : "";
 				return cells;
 			}
-			// limits 家族（OpenCode Go / 其它 percent 型）：三窗口各放百分比。
+			// limits 家族（OpenCode Go / Command Code / 其它 percent 型）：三窗口各放百分比。
 			if (b.kind === "limits") {
 				const wins = b.windows || [];
 				for (const w of wins) {
@@ -270,6 +272,11 @@ window.__ModuleLoader__.load({
 					if (k === "rolling" || k === "5小时") cells.rolling = pct;
 					else if (k === "weekly" || k === "7天") cells.weekly = pct;
 					else if (k === "monthly" || k === "30天") cells.monthly = pct;
+				}
+				// Command Code：月度剩余 credits 放进「余额」列（无查询窗口时表格仍有数据可见）。
+				if (b.family === "commandcode" && b.monthly && b.monthly.remaining != null) {
+					const mCur = b.monthly.currency === "USD" ? "$" : (b.monthly.currency || "") + " ";
+					cells.balance = mCur + _num2(b.monthly.remaining) + (b.monthly.total != null ? " / " + mCur + _num2(b.monthly.total) : "");
 				}
 			}
 			return cells;
@@ -522,11 +529,21 @@ window.__ModuleLoader__.load({
 					var suffix = bal && bal.is_available === false ? tx("insufficient") : "";
 					return [row(tx("balanceName"), parts.length ? parts.join(" · ") + suffix : "—" + suffix)];
 				}
-				// limits 家族（OpenCode Go）：各窗口已用百分比 + 重置倒计时。
+				// limits 家族（OpenCode Go / Command Code）：各窗口已用百分比 + 重置倒计时。
 				if (b.kind === "limits") {
 					var wins = b.windows || [];
-					if (!wins.length) return [row(tx("balance"), tx("noData"))];
+					// Command Code：顶部先给一行「月度额度」剩余（本周期还能用多少 credits）。
+					var ccMonthly = (b.family === "commandcode" && b.monthly && b.monthly.remaining != null)
+						? b.monthly : null;
+					if (!wins.length && !ccMonthly) return [row(tx("balance"), tx("noData"))];
 					var rows = [];
+					if (ccMonthly) {
+						var mCur = ccMonthly.currency === "USD" ? "$" : (ccMonthly.currency || "") + " ";
+						var mText = mCur + fmtNum2(ccMonthly.remaining);
+						if (ccMonthly.total != null) mText += " / " + mCur + fmtNum2(ccMonthly.total);
+						if (ccMonthly.plan) mText += " · " + ccMonthly.plan.replace(/^individual-/, "");
+						rows.push(row(tx("monthlyQuota"), mText));
+					}
 					for (var i = 0; i < wins.length; i++) {
 						var w = wins[i];
 						var title = w.label || w.key || tx("window");

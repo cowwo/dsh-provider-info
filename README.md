@@ -24,6 +24,7 @@ DeepSeek Harness can be configured with several AI providers at once, and each p
 - **Quota / balance section**: for providers that support it, the hover panel also shows the provider's remaining quota — DeepSeek account balance, or OpenCode Go's 5-hour / weekly / monthly usage limits with reset countdowns. Recognized-but-unsupported providers show `暂不支持该供应商查询`; missing keys or query failures show `未配置 API Key` / `查询失败`.
   - DeepSeek: `GET /user/balance` (read-only, never charges you nor burns tokens).
   - OpenCode Go: `GET /v1/usage` (read-only usage windows).
+  - Command Code (GOAT / Pro / Max plans, e.g. `https://api.commandcode.ai/provider/v1`): remaining monthly credits plus 5-hour / weekly window usage with reset countdowns (the same read-only internal endpoints the official CLI uses).
   - The host caches the result per provider for 5 minutes, so hovering repeatedly doesn't hammer the provider API.
   - The quota block has a **Refresh** button: click it to bypass the cache and immediately pull the latest quota (still read-only). Hovering normally uses the 5-minute cache.
   - While your mouse is over the panel/button, message-stream scrolling won't hide the panel, so you can read it comfortably; it only hides on scroll after you move away.

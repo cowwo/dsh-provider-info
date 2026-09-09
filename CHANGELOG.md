@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-09-09
+
+### Added
+- 余量查询新增 **Command Code** 家族（GOAT / Pro / Max 等套餐，`baseURL` 含 `commandcode.ai` 即命中）：读取官方 CLI 同款内部接口 `GET /alpha/billing/credits` + `/alpha/billing/subscriptions`（只读、不计费），悬浮浮层与设置页「全部提供商余量」表格展示：月度剩余 credits（按套餐映射月额度，如 GOAT $70）+ 5小时/每周窗口已用百分比、折算金额与重置倒计时。
+
 ## [0.7.4] - 2026-09-09
 
 ### Changed
