@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-09-09
+
+### Fixed
+- 修复 DSH ≥ 0.1.2（0.1.2-rc.1 起）下徽章与悬浮浮层失效：dsh-client-connection 不再在 `connection` 服务上暴露旧版 `api`（`api.sessions.models` / `api.settings.describe`），取数改为走当前 DSH 的 `modelDirectories` 目录服务（与模型座同源）与 `ctx.remote.settings.describe()`。旧版 DSH（connection 仍带 `api`）自动走原路径，无需改动配置。
+
 ## [Unreleased]
 
 ### Added

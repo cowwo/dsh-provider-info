@@ -193,7 +193,7 @@ window.__ModuleLoader__.load({
 		//#region 共享余量存储：悬浮窗与设置页共用同一份查询结果
 		// 悬浮窗查过的 provider 余量会被写入这里，设置页直接复用（不重复打厂商接口）。
 		// host 端 providerBadge/balance 另有 5 分钟缓存，二者叠加避免频繁请求。
-		const quotaShared = { api: null, rpc: null };
+		const quotaShared = { rpc: null };
 		const quotaCache = new Map(); // key: provider 路由键 -> { fetchedAt, value }
 		/** 读取/枚举所有可查询余量的提供商（官方 + 自定义，host 端 providerBadge/providers 合并）。 */
 		async function fetchProviderList() {
@@ -762,7 +762,6 @@ window.__ModuleLoader__.load({
 		// ----「提供商余量」设置页 ----
 		function ProviderSettingsPage(props) {
 			const rpc = props.rpc;
-			const api = props.api;
 			const [hoverRefresh, setHoverRefresh] = React.useState(QSettings.hoverRefresh);
 			const [autoRefreshOn, setAutoRefreshOn] = React.useState(QSettings.autoRefreshOn);
 			const [min, setMin] = React.useState(String(QSettings.autoRefreshMin));
@@ -795,7 +794,6 @@ window.__ModuleLoader__.load({
 			// 载入：枚举 provider 列表，然后逐个取余量（复用模块级 quotaCache，命中即不请求）。
 			React.useEffect(() => {
 				let alive = true;
-				if (api) quotaShared.api = api;
 				(async () => {
 					const list = await fetchProviderList();
 					if (!alive) return;
@@ -958,6 +956,54 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		//#region DSH ≥ 0.1.2（connection.api 已移除）的数据门面
+		// 0.1.2-rc.1 起 dsh-client-connection 的 connection 服务不再暴露旧版 `api`
+		// （sessions.models / settings.describe 曾挂在上面），高层取数改为：
+		//   当前会话模型/提供商/分组  → modelDirectories 目录服务（每会话 ModelDirectory.store：
+		//      快照 { current:{provider,model,reasoningEffort?}, groups:[{id,name,models:[…]}], … }，
+		//      与旧 sessions.models 的 { current, groups } 语义一致，也是模型座自身渲染所依赖的数据）
+		//   提供商配置（llm-pi-ai.providers）→ ctx.remote.settings.describe()
+		// 这里把它们适配回 installProviderBadge 内部原有的 api.sessions.models /
+		// api.settings.describe 形状，徽章/浮层/余量逻辑无需改动。
+		function createModernDataFacade(dirs, remote) {
+			return {
+				sessions: {
+					models: async (arg) => {
+						const sessionId = arg && arg.sessionId;
+						if (typeof sessionId !== "string") return { result: { ok: false } };
+						let directory = null;
+						try {
+							directory = dirs.directoryFor(sessionId);
+						} catch (e) {
+							// 会话作用域尚未就绪（如刚打开/子代理会话）→ 下次轮询再试，不报错。
+							return { result: { ok: false } };
+						}
+						let snap = directory.store.getSnapshot();
+						if (snap.status !== "ready") {
+							// 目录加载失败（如模型目录不可用）→ 抛出让调用方按“装饰失效”显式提示，
+							// 与旧版 api 调用出错时一致；仅“作用域/目录未就绪”属瞬时态，静默等下次轮询。
+							await directory.load();
+							snap = directory.store.getSnapshot();
+						}
+						// 目录已就绪但还没有当前选择（如无模型可用的会话）→ ok，调用方按“无提供商”处理。
+						return { result: { ok: true, value: snap } };
+					}
+				},
+				settings: {
+					describe: async () => {
+						try {
+							const resp = await remote.settings.describe();
+							return { result: resp };
+						} catch (e) {
+							console.warn("[provider-badge] settings.describe 失败", e);
+							return { result: null };
+						}
+					}
+				}
+			};
+		}
+		//#endregion
+
 		function apply(ctx) {
 			// 注册 i18n 字典（跟随系统时由 DSH locale 决定语言）
 			try {
@@ -975,14 +1021,28 @@ window.__ModuleLoader__.load({
 				} catch (e) { return "zh"; }
 			};
 			ctx.inject(["sessions", "connection", "slots"], (scoped) => {
-				quotaShared.api = scoped.connection.api;
-				quotaShared.rpc = scoped.connection.rpc;
-				try {
-					installProviderBadge(scoped.sessions, scoped.connection.api, scoped.connection.rpc);
-				} catch (e) {
-					console.warn("[provider-badge] 安装失败", e);
-				}
+				quotaShared.rpc = scoped.connection && scoped.connection.rpc || null;
+				const sessions = scoped.sessions;
 				const slots = scoped.slots;
+				// 数据路径选择：
+				//  - 旧版 DSH（connection 服务还带 api 字段，如 0.1.1-rc.x）→ 原逻辑直用 connection.api。
+				//  - 新版 DSH（0.1.2+，connection.api 已移除）→ 等 modelDirectories / remote 服务
+				//    就绪后，用门面把目录 store + remote.settings.describe 适配回相同形状。
+				const legacyApi = scoped.connection && scoped.connection.api;
+				const installBadge = (api) => {
+					try {
+						installProviderBadge(sessions, api, quotaShared.rpc);
+					} catch (e) {
+						console.warn("[provider-badge] 安装失败", e);
+					}
+				};
+				if (legacyApi) {
+					installBadge(legacyApi);
+				} else {
+					ctx.inject(["modelDirectories", "remote", "remote.settings"], (scoped2) => {
+						installBadge(createModernDataFacade(scoped2.modelDirectories, scoped2.remote));
+					});
+				}
 				if (slots && slots.inject) {
 					try {
 						slots.inject("settings.section", () => slots.register({
@@ -990,7 +1050,7 @@ window.__ModuleLoader__.load({
 							id: "provider-info",
 							order: 13,
 							label: tx("settings.entry")
-						}, (props) => React.createElement(ProviderSettingsPage, { ...props, rpc: scoped.connection.rpc, api: scoped.connection.api })));
+						}, (props) => React.createElement(ProviderSettingsPage, { ...props, rpc: quotaShared.rpc })));
 					} catch (e) {
 						console.warn("[provider-badge] 注册设置页失败", e);
 					}
