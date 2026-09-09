@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-09-09
+
+### Changed
+- 悬浮浮窗热区收窄：只有鼠标悬停在提供商徽章小标签上才弹出浮窗；鼠标移向模型选择按钮本体/下拉区域时立即收起，点击按钮打开模型下拉时也主动收起并取消待触发的弹出，不再遮挡模型选择。
+
 ## [0.7.3] - 2026-09-09
 
 ### Fixed

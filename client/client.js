@@ -673,7 +673,8 @@ window.__ModuleLoader__.load({
 			const hideTip = () => {
 				if (tip) tip.style.display = "none";
 			};
-			// 把悬浮热区绑到整个模型选择按钮（而不只是徽章那块）
+			// 悬浮热区只绑在提供商徽章小标签上：悬停标签才弹浮窗；
+			// 鼠标一旦移向按钮本体/模型下拉区域立即收起，避免弹层遮挡模型选择。
 			const onEnter = () => {
 				hovering = true;
 				if (hideTimer) clearTimeout(hideTimer);
@@ -681,12 +682,20 @@ window.__ModuleLoader__.load({
 				if (showTimer) clearTimeout(showTimer);
 				showTimer = setTimeout(showTip, SHOW_DELAY);
 			};
-			const onLeave = () => {
+			const onLeave = (e) => {
 				hovering = false;
 				if (showTimer) clearTimeout(showTimer);
 				showTimer = null;
 				if (hideTimer) clearTimeout(hideTimer);
-				// 延迟隐藏：若鼠标在 HIDE_DELAY 内移入浮窗，浮窗的 mouseenter 会重置 hovering 并取消。
+				hideTimer = null;
+				// 移入按钮本体（模型选择器文字/箭头等，通常是想点开下拉选模型）→ 立即收起，绝不遮挡。
+				// 只有移出到浮窗或页面其它区域时才走 HIDE_DELAY 缓冲，方便顺势挪进浮窗查看。
+				const next = e && e.relatedTarget;
+				const stayingOnSeat = seatBtnEl && next && (next === seatBtnEl || (seatBtnEl.contains && seatBtnEl.contains(next)));
+				if (stayingOnSeat) {
+					hideTip();
+					return;
+				}
 				hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, HIDE_DELAY);
 			};
 			let boundBtn = null;
@@ -718,13 +727,25 @@ window.__ModuleLoader__.load({
 							fontWeight: 400, letterSpacing: ".01em",
 							whiteSpace: "nowrap"
 						});
-						// 滚动：仅在鼠标不在悬停区（浮窗/按钮）时才隐藏，避免浮层错位；
+						// 滚动：仅在鼠标不在悬停区（浮窗/徽章标签）时才隐藏，避免浮层错位；
 						// 鼠标停在浮窗/按钮上时（正在查看/点击刷新）滚动不打断。尺寸变化时始终隐藏。
 						window.addEventListener("scroll", () => { if (!hovering) hideTip(); }, { passive: true, capture: true });
 						window.addEventListener("resize", hideTip);
 					}
 					if (badge.parentNode !== seatBtn) seatBtn.insertBefore(badge, seatBtn.firstChild);
-					attachHover(seatBtn);
+					// 热区 = 徽章小标签，不是整个按钮。
+					attachHover(badge);
+					// 点击模型选择按钮（打开下拉菜单）时立即收起浮窗并取消待触发计时器，
+					// 防止刚悬停过徽章时弹层盖住下拉菜单。
+					if (!seatBtn.__piClickBound) {
+						seatBtn.__piClickBound = true;
+						seatBtn.addEventListener("click", () => {
+							hovering = false;
+							if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+							if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+							hideTip();
+						});
+					}
 					const sessionId = sessions.list.getSnapshot().current;
 					if (typeof sessionId !== "string") return;
 					const { result } = await api.sessions.models({ sessionId });
