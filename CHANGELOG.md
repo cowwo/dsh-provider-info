@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-09-09
+
+### Changed
+- Command Code 余量：月度总额度改为 **周窗 cap × 2** 动态推导（如 GOAT 35×2=$70），不再本地硬编码套餐表——官方调整窗口额度后接口实时返回、显示自动跟随；月度剩余计入 freeCredits（口径对齐官方 CLI 的 totalRemaining）。
+- 百分比统一精确到小数点后两位（如 `7.17%`）。
+- Command Code 月度行新增**周期到期时间**（计费周期结束日期 + 剩余天数）。
+- 不支持查询的提供商（含未识别厂商）：浮窗余量区块照常显示，明确提示「当前暂不支持查询当前提供商」，不再整体不显示。
+
 ## [0.7.5] - 2026-09-09
 
 ### Added

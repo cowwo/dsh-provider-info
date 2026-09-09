@@ -33,6 +33,10 @@ window.__ModuleLoader__.load({
 			"unknown": "未提供",
 			"window": "窗口",
 			"noSupport": "暂不支持该供应商查询",
+			"noSupportProvider": "当前暂不支持查询当前提供商",
+			"expiresOn": "到期",
+			"daysUnit": "天",
+			"leftDays": "剩",
 			"queryFailed": "查询失败",
 			"noApiKey": "未配置 API Key",
 			"subscriptionRequired": "订阅权限不足",
@@ -105,6 +109,10 @@ window.__ModuleLoader__.load({
 			"unknown": "Not provided",
 			"window": "Window",
 			"noSupport": "Queries not supported for this provider",
+			"noSupportProvider": "Queries are not supported for this provider yet",
+			"expiresOn": "Expires",
+			"daysUnit": "d",
+			"leftDays": "left",
 			"queryFailed": "Query failed",
 			"noApiKey": "No API Key configured",
 			"subscriptionRequired": "Subscription not sufficient",
@@ -242,7 +250,7 @@ window.__ModuleLoader__.load({
 		}
 		// ---- 余量结果 → 表格单元格归一化（供设置页表格使用，自包含不依赖悬浮闭包）----
 		const _num2 = (n) => { var v = Number(n); return v === v ? v.toFixed(2) : ""; };
-		const _pct = (n) => { var v = Number(n); return v === v ? Math.round(v) + "%" : ""; };
+		const _pct = (n) => { var v = Number(n); return v === v ? v.toFixed(2) + "%" : ""; };
 		const _sym = (code) => code === "CNY" ? "¥" : code === "USD" ? "$" : code === "EUR" ? "€" : (code || "") + " ";
 		/** 把 balance 结果归一化成表格五列要显示的纯文本；无数据的维度返回空串。 */
 		function quotaCells(b) {
@@ -284,7 +292,8 @@ window.__ModuleLoader__.load({
 		/** 余量错误/不支持状态 → 文案（复用 tx 词条，与悬浮窗一致）。 */
 		function quotaErrorText(b) {
 			if (!b) return "";
-			if (!b.supported && b.error === "not-supported") return tx("noSupport");
+			// 未识别厂商 / 已识别但暂不支持查询 → 统一提示「暂不支持查询当前提供商」。
+			if (!b.supported || b.recognized === false) return tx("noSupportProvider");
 			if (b.error === "no-api-key") return tx("noApiKey");
 			if (b.error === "subscription-required") return tx("subscriptionRequired");
 			if (b.error === "unauthorized") return tx("unauthorized");
@@ -475,7 +484,7 @@ window.__ModuleLoader__.load({
 			};
 			const fmtPct = (u) => {
 				var v = Number(u);
-				return v === v ? Math.round(v) + "%" : "—";
+				return v === v ? v.toFixed(2) + "%" : "—";
 			};
 			const countdownStr = (resetsAt) => {
 				if (!resetsAt) return null;
@@ -504,10 +513,9 @@ window.__ModuleLoader__.load({
 			// 已识别但不支持的厂商显示「暂不支持该供应商查询」，未识别的不展示。
 			const balanceRows = (b) => {
 				if (!b) return null;
-				// 已识别但暂不支持查询的厂商。
+				// 已识别但暂不支持查询 / 完全未识别的厂商：浮窗照常显示该行，明确告知不支持。
 				if (!b.supported) {
-					if (b.error === "not-supported") return [row(tx("balance"), tx("noSupport"))];
-					return null;
+					return [row(tx("balance"), tx("noSupportProvider"))];
 				}
 				// 支持查询但出错：细分错误原因。
 				if (b.error) {
@@ -542,6 +550,15 @@ window.__ModuleLoader__.load({
 						var mText = mCur + fmtNum2(ccMonthly.remaining);
 						if (ccMonthly.total != null) mText += " / " + mCur + fmtNum2(ccMonthly.total);
 						if (ccMonthly.plan) mText += " · " + ccMonthly.plan.replace(/^individual-/, "");
+						// 到期时间（订阅计费周期结束）：2026-10-08 · 剩 29 天
+						var pd = ccMonthly.periodEnd ? new Date(ccMonthly.periodEnd) : null;
+						if (pd && pd.getTime() === pd.getTime()) {
+							var pad2 = (n) => String(n).padStart(2, "0");
+							mText += " · " + tx("expiresOn") + " " + pd.getFullYear() + "-" + pad2(pd.getMonth() + 1) + "-" + pad2(pd.getDate());
+							if (ccMonthly.daysLeft != null && ccMonthly.daysLeft >= 0) {
+								mText += " · " + tx("leftDays") + " " + ccMonthly.daysLeft + tx("daysUnit");
+							}
+						}
 						rows.push(row(tx("monthlyQuota"), mText));
 					}
 					for (var i = 0; i < wins.length; i++) {
@@ -572,7 +589,7 @@ window.__ModuleLoader__.load({
 				try {
 					const bal = await resolveBalance(ctx2.provider, ctx2.cfg, true);
 					lastBalanceBox.body.innerHTML = "";
-					const els = bal && bal.recognized ? buildRowEls(bal) : null;
+					const els = bal ? buildRowEls(bal) : null;
 					if (els && els.length) {
 						for (var i = 0; i < els.length; i++) lastBalanceBox.body.appendChild(els[i]);
 					} else {
@@ -667,13 +684,16 @@ window.__ModuleLoader__.load({
 					const balanceCfg = balanceProvider === provider ? cfg : await resolveProviderCfg(balanceProvider);
 					// 悬停立即刷新：开启时每次悬停都强制重查（绕缓存）；否则走默认 5 分钟缓存。
 					const bal = await resolveBalance(balanceProvider, balanceCfg, QSettings.hoverRefresh);
-					if (bal && bal.recognized) {
+					// 任何查询结果（含“未识别/暂不支持”）都展示余量区块——不支持的提供商显示明确提示行。
+					if (bal) {
 						const mb = mountBalanceBlock(t);
 						lastBalanceBox = mb;
 						lastBalanceCtx = { provider: balanceProvider, cfg: balanceCfg };
 						const els = buildRowEls(bal);
 						if (els && els.length) {
 							for (var bi = 0; bi < els.length; bi++) mb.body.appendChild(els[bi]);
+						} else {
+							mb.body.appendChild(row(tx("balance"), tx("queryFailed")));
 						}
 					}
 
