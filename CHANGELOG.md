@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-10
+
+### Changed
+- 徽章样式改为**「键帽（kbd）」**：`4px` 圆角 + 浅底（`bg-layer-3`）+ `0.5px` 描边 + `0 1px 0` 底部阴影；`10px` 字号、`14px` 行高、`1px 5px` 内边距、`17px` 最小高、字重 `600`，文字色 `label-secondary`，去掉原来的 `letterSpacing`。
+  - 几何自洽：`14px` 行高 + `1px×2` 内边距 + `0.5px×2` 描边 = `17px`，正好等于 `minHeight`，盒子不虚高。
+  - 描边取 `0.5px`、圆角取 `4px`：前者是 DSH 自身惯例（主题包内多处 `.5px solid`），后者落在 DSH 的「小标签档」（2–6px）内，与旁边 `8px` 的模型座同属一个体系 —— 原来的 `999px` 胶囊其实是用错了档位。
+  - 字重提到 `600` 是补偿字号缩小：`10px` 下 `500` 会发虚，`600` 才能保持笔画清晰。
+  - 相比原样式层级更正确：原样式的描边 + 底色配合 `10px` 字号，使这个「配角」比纯文字的模型座视觉重量更重。
+  - **两条承载路径同步更新**：官方槽位徽章（`makeSlotBadge`）与旧版 DOM 注入回退（`installProviderBadge`）使用同一套样式，避免旧版 DSH 回退时观感不一致。
+  - 徽章与模型选择器间距由 `4px` 进一步收紧到 `2px`（`BADGE_GAP_PULL` 8 → 10）：DSH 的 `.trailing` 容器为 `gap: 12px`，用负 `margin-right` 抵消 `10px` 得到 `2px`。
+  - 选型来自 `badge-styles.html` 预览页的 16 个候选（圆角系 / 非圆角系 / 其他方向三组）。
+- 余量区块行顺序调整为 **`5h` → `7d` → `30d` → `到期`**：月度额度行（`30d`）的数据仍先算好，但延后到所有窗口行之后再渲染。
+- 月度额度行（`30d`）改为显示**已用百分比**，与 `5h` / `7d` 行同口径（`已用% + （$已用/$总额）`），不再只列剩余金额。
+  - 已用 = `总额 − 剩余`，百分比由客户端计算（host 侧不提供 percent 字段）。
+  - host 侧的 `remaining` 会把赠送/购买额度一并累加，可能超过 `total`（`total` 仅由 `weeklyCap × 2` 推出）→ 百分比**夹到 `[0,100]`**，避免出现负数或 >100%。
+  - `total` 缺失或 ≤0 时算不出百分比，退回只显示剩余金额，避免 `NaN` / `Infinity`。
+- 月度额度行末尾由**套餐名**（如 `goat`）改为**本周期剩余时间倒计时**，与 `5h` / `7d` 行的写法一致（复用同一个 `countdownStr`，以 `periodEnd` 为周期结束时间）。
+- 「到期」时间从月度额度行里拆出，**独立成一行**并放在所有窗口行之后（订阅周期信息收尾）；日期非法时不渲染该行，`daysLeft` 缺失时只显示日期。
+- 悬浮浮层的窗口标签改用**紧凑写法**（`5h` / `7d` / `30d`），不再用 host 硬编码的 `5小时` / `7天`。
+  - 新增浮层专用 i18n 键 `quota.win.*`（zh / en 均为紧凑形式），**与设置页表格表头的 `quota.col.*` 分开**：中文环境下表格表头保持 `5小时 | 7天 | 30天`，仅浮层用紧凑标签。
+  - 浮层标签缺键时回退到 host 提供的 label，不会显示成键名。
+
 ## [0.8.1] - 2026-09-10
 
 ### Fixed
@@ -66,16 +88,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复 DSH ≥ 0.1.2（0.1.2-rc.1 起）下徽章与悬浮浮层失效：dsh-client-connection 不再在 `connection` 服务上暴露旧版 `api`（`api.sessions.models` / `api.settings.describe`），取数改为走当前 DSH 的 `modelDirectories` 目录服务（与模型座同源）与 `ctx.remote.settings.describe()`。旧版 DSH（connection 仍带 `api`）自动走原路径，无需改动配置。
 
 ## [Unreleased]
-
-### Changed
-- 徽章样式改为**「键帽（kbd）」**：`4px` 圆角 + 浅底（`bg-layer-3`）+ `0.5px` 描边 + `0 1px 0` 底部阴影；`10px` 字号、`14px` 行高、`1px 5px` 内边距、`17px` 最小高、字重 `600`，文字色 `label-secondary`，去掉原来的 `letterSpacing`。
-  - 几何自洽：`14px` 行高 + `1px×2` 内边距 + `0.5px×2` 描边 = `17px`，正好等于 `minHeight`，盒子不虚高。
-  - 描边取 `0.5px`、圆角取 `4px`：前者是 DSH 自身惯例（主题包内多处 `.5px solid`），后者落在 DSH 的「小标签档」（2–6px）内，与旁边 `8px` 的模型座同属一个体系 —— 原来的 `999px` 胶囊其实是用错了档位。
-  - 字重提到 `600` 是补偿字号缩小：`10px` 下 `500` 会发虚，`600` 才能保持笔画清晰。
-  - 相比原样式层级更正确：原样式的描边 + 底色配合 `10px` 字号，使这个「配角」比纯文字的模型座视觉重量更重。
-  - **两条承载路径同步更新**：官方槽位徽章（`makeSlotBadge`）与旧版 DOM 注入回退（`installProviderBadge`）使用同一套样式，避免旧版 DSH 回退时观感不一致。
-  - 徽章与模型选择器间距由 `4px` 收紧到 `2px`（`BADGE_GAP_PULL` 8 → 10）：DSH 的 `.trailing` 容器为 `gap: 12px`，用负 `margin-right` 抵消 `10px` 得到 `2px`。
-  - 选型来自 `badge-styles.html` 预览页的 16 个候选（圆角系 / 非圆角系 / 其他方向三组）。
 
 ### Added
 - 「提供商信息」设置页新增「全部提供商余量」表格：汇总所有可查询余额/限额的提供商，表头为 `提供商 | 5小时 | 7天 | 30天 | 余额 | 操作`，无数据的维度留空；支持单行刷新与全部刷新；复用悬浮窗查询结果（模块级共享缓存 + host 5 分钟缓存），provider 数量多时表格横向溢出自动滚动。

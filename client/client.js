@@ -77,6 +77,10 @@ window.__ModuleLoader__.load({
 			"quota.col.monthly": "30天",
 			"quota.col.balance": "余额",
 			"quota.col.action": "操作",
+			// 悬浮浮层专用的紧凑窗口标签（与设置页表格表头分开，见 quota.col.*）。
+			"quota.win.rolling": "5h",
+			"quota.win.weekly": "7d",
+			"quota.win.monthly": "30d",
 			"quota.refreshAll": "全部刷新",
 			"quota.refreshAllBusy": "刷新中…",
 			"quota.empty": "暂无提供商配置",
@@ -153,6 +157,10 @@ window.__ModuleLoader__.load({
 			"quota.col.monthly": "30d",
 			"quota.col.balance": "Balance",
 			"quota.col.action": "Action",
+			// Compact window labels for the hover popover (separate from the settings table's quota.col.*).
+			"quota.win.rolling": "5h",
+			"quota.win.weekly": "7d",
+			"quota.win.monthly": "30d",
 			"quota.refreshAll": "Refresh all",
 			"quota.refreshAllBusy": "Refreshing…",
 			"quota.empty": "No providers configured",
@@ -573,30 +581,49 @@ window.__ModuleLoader__.load({
 				// limits 家族（OpenCode Go / Command Code）：各窗口已用百分比 + 重置倒计时。
 				if (b.kind === "limits") {
 					var wins = b.windows || [];
-					// Command Code：顶部先给一行「月度额度」剩余（本周期还能用多少 credits）。
+					// Command Code：月度额度行（30d）的数据先算好，但**延后到最后**再 push ——
+					// 行顺序为「5h → 7d → 30d → 到期」，到期行收尾。
 					var ccMonthly = (b.family === "commandcode" && b.monthly && b.monthly.remaining != null)
 						? b.monthly : null;
 					if (!wins.length && !ccMonthly) return [row(tx("balance"), tx("noData"))];
 					var rows = [];
+					var ccMonthlyText = null;
+					var ccExpiry = null;
 					if (ccMonthly) {
 						var mCur = ccMonthly.currency === "USD" ? "$" : (ccMonthly.currency || "") + " ";
-						var mText = mCur + fmtNum2(ccMonthly.remaining);
-						if (ccMonthly.total != null) mText += " / " + mCur + fmtNum2(ccMonthly.total);
-						if (ccMonthly.plan) mText += " · " + ccMonthly.plan.replace(/^individual-/, "");
-						// 到期时间（订阅计费周期结束）：2026-10-08 · 剩 29 天
+						var mText;
+						// 已用 = 总额 − 剩余。host 侧 remaining 把赠送/购买额度也累加进来，可能超过
+						// total，故百分比必须夹到 [0,100]，否则会算出负数或 >100%。total 缺失或 ≤0
+						// 时算不出百分比，退回只显示剩余金额（避免 NaN / Infinity）。
+						var mTotal = (ccMonthly.total != null && ccMonthly.total > 0) ? ccMonthly.total : null;
+						if (mTotal !== null) {
+							var mUsed = Math.min(Math.max(mTotal - ccMonthly.remaining, 0), mTotal);
+							mText = fmtPct((mUsed / mTotal) * 100)
+								+ "（" + mCur + fmtNum2(mUsed) + "/" + mCur + fmtNum2(mTotal) + "）";
+						} else {
+							mText = mCur + fmtNum2(ccMonthly.remaining);
+						}
+						// 与 5h / 7d 行写法一致：末尾跟本周期剩余时间的倒计时。
+						// 周期结束时间即 periodEnd，复用同一个 countdownStr，格式与窗口行完全统一。
+						// （原先这里显示套餐名，如 goat。）
+						var cdMonthly = countdownStr(ccMonthly.periodEnd);
+						if (cdMonthly) mText += " · " + cdMonthly;
+						ccMonthlyText = mText;
+						// 到期时间（订阅计费周期结束）：2026-10-08 · 剩 28 天
 						var pd = ccMonthly.periodEnd ? new Date(ccMonthly.periodEnd) : null;
 						if (pd && pd.getTime() === pd.getTime()) {
 							var pad2 = (n) => String(n).padStart(2, "0");
-							mText += " · " + tx("expiresOn") + " " + pd.getFullYear() + "-" + pad2(pd.getMonth() + 1) + "-" + pad2(pd.getDate());
+							ccExpiry = pd.getFullYear() + "-" + pad2(pd.getMonth() + 1) + "-" + pad2(pd.getDate());
 							if (ccMonthly.daysLeft != null && ccMonthly.daysLeft >= 0) {
-								mText += " · " + tx("leftDays") + " " + ccMonthly.daysLeft + tx("daysUnit");
+								ccExpiry += " · " + tx("leftDays") + " " + ccMonthly.daysLeft + tx("daysUnit");
 							}
 						}
-						rows.push(row(tx("monthlyQuota"), mText));
 					}
 					for (var i = 0; i < wins.length; i++) {
 						var w = wins[i];
-						var title = w.label || w.key || tx("window");
+						// 标签走浮层专用的紧凑键（5h / 7d / 30d）；缺键时回退到 host 给的 label。
+						var wk = w.key ? tx("quota.win." + w.key) : null;
+						var title = (wk && wk !== "quota.win." + w.key) ? wk : (w.label || w.key || tx("window"));
 						var pct = (w.percent !== null && w.percent !== undefined) ? fmtPct(w.percent) : null;
 						var detail = pct || "";
 						// 仅当 percent 有效时才折算金额，避免 null 时拼出误导的 $0.00。
@@ -605,6 +632,8 @@ window.__ModuleLoader__.load({
 						var cd = countdownStr(w.resetsAt);
 						rows.push(row(title, detail + (cd ? " · " + cd : "")));
 					}
+					if (ccMonthlyText !== null) rows.push(row(tx("quota.win.monthly"), ccMonthlyText));
+					if (ccExpiry) rows.push(row(tx("expiresOn"), ccExpiry));
 					return rows;
 				}
 				return null;
