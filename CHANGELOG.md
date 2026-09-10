@@ -67,6 +67,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- 徽章样式改为**「键帽（kbd）」**：`4px` 圆角 + 浅底（`bg-layer-3`）+ `0.5px` 描边 + `0 1px 0` 底部阴影；`10px` 字号、`14px` 行高、`1px 5px` 内边距、`17px` 最小高、字重 `600`，文字色 `label-secondary`，去掉原来的 `letterSpacing`。
+  - 几何自洽：`14px` 行高 + `1px×2` 内边距 + `0.5px×2` 描边 = `17px`，正好等于 `minHeight`，盒子不虚高。
+  - 描边取 `0.5px`、圆角取 `4px`：前者是 DSH 自身惯例（主题包内多处 `.5px solid`），后者落在 DSH 的「小标签档」（2–6px）内，与旁边 `8px` 的模型座同属一个体系 —— 原来的 `999px` 胶囊其实是用错了档位。
+  - 字重提到 `600` 是补偿字号缩小：`10px` 下 `500` 会发虚，`600` 才能保持笔画清晰。
+  - 相比原样式层级更正确：原样式的描边 + 底色配合 `10px` 字号，使这个「配角」比纯文字的模型座视觉重量更重。
+  - **两条承载路径同步更新**：官方槽位徽章（`makeSlotBadge`）与旧版 DOM 注入回退（`installProviderBadge`）使用同一套样式，避免旧版 DSH 回退时观感不一致。
+  - 徽章与模型选择器间距由 `4px` 收紧到 `2px`（`BADGE_GAP_PULL` 8 → 10）：DSH 的 `.trailing` 容器为 `gap: 12px`，用负 `margin-right` 抵消 `10px` 得到 `2px`。
+  - 选型来自 `badge-styles.html` 预览页的 16 个候选（圆角系 / 非圆角系 / 其他方向三组）。
+
 ### Added
 - 「提供商信息」设置页新增「全部提供商余量」表格：汇总所有可查询余额/限额的提供商，表头为 `提供商 | 5小时 | 7天 | 30天 | 余额 | 操作`，无数据的维度留空；支持单行刷新与全部刷新；复用悬浮窗查询结果（模块级共享缓存 + host 5 分钟缓存），provider 数量多时表格横向溢出自动滚动。
 - 服务端 `providerBadge/providers` 端点：合并「自定义提供方」（`llm-pi-ai.providers`）与「官方/内置提供方」（`ctx.llm.listConfigurableProviders()`，如 DeepSeek 官方），逐项解析 baseURL/apiKeyEnv，使「模型」面板里的官方提供方也进入余量表。

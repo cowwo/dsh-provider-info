@@ -911,14 +911,17 @@ window.__ModuleLoader__.load({
 					seatBtnEl = seatBtn;
 					if (!badge) {
 						badge = document.createElement("span");
+						// 与官方槽位徽章（makeSlotBadge）保持同一套 V14「键帽」样式，
+						// 避免旧版 DSH 回退到本路径时观感不一致。
 						Object.assign(badge.style, {
 							display: "inline-flex", alignItems: "center", flex: "none",
 							position: "relative", boxSizing: "border-box",
-							padding: "1px 6px", minHeight: "18px", borderRadius: 999, fontSize: 10, lineHeight: "14px",
-							color: "var(--dsw-alias-label-tertiary)",
+							padding: "1px 5px", minHeight: "17px", borderRadius: 4, fontSize: 10, lineHeight: "14px",
+							color: "var(--dsw-alias-label-secondary)",
 							background: "var(--dsw-alias-bg-layer-3)",
-							border: "1px solid var(--dsw-alias-border-l2)",
-							fontWeight: 400, letterSpacing: ".01em",
+							border: "0.5px solid var(--dsw-alias-border-l2)",
+							boxShadow: "0 1px 0 var(--dsw-alias-border-l3)",
+							fontWeight: 600,
 							whiteSpace: "nowrap"
 						});
 						// 透明外扩热区：视觉不变、命中范围各方向 +6px，避免标签太小“擦边即丢悬停”。
@@ -965,10 +968,10 @@ window.__ModuleLoader__.load({
 		 * 徽章与模型座的实际间距。
 		 * DSH 的 InputBar `.trailing` 容器（徽章与模型座的共同父级）是 `gap: 12px`；
 		 * 槽位锚点 `<div data-slot=… style="display:contents">` 不产生盒子，所以徽章就是该
-		 * flex 行的直接子项 —— 用负 margin-right 抵消掉多余部分，把 12px 压到 4px。
-		 * 想改成 2px：把 8 改成 10（12 - 10 = 2）。
+		 * flex 行的直接子项 —— 用负 margin-right 抵消掉多余部分，把 12px 压到 2px。
+		 * 改成其他值：目标间距 = 12 - BADGE_GAP_PULL（2px → 10，4px → 8，6px → 6）。
 		 */
-		const BADGE_GAP_PULL = 8;
+		const BADGE_GAP_PULL = 10;
 
 		/**
 		 * 官方槽位承载（推荐）：徽章作为 conversation.input.right 的贡献项 —— 模型座左侧的官方空槽。
@@ -1032,14 +1035,19 @@ window.__ModuleLoader__.load({
 					ref: hostRef,
 					"data-provider-badge": "",
 					title: text,
+					// 样式候选 V14「键帽（kbd）」，按反馈收紧一档：整体更小、描边更细、字重更强。
+					// 几何：14px 行高 + 1px×2 内边距 + 0.5px×2 描边 = 17px，正好等于 minHeight，盒子不虚高。
+					// 描边 0.5px 是 DSH 自己的惯例（主题包内多处 .5px solid），比 1px 更轻、不抢模型座。
+					// 字重 600 用于补偿缩小后的字号：10px 下 500 会发虚，600 才能保持笔画清晰。
 					style: {
 						display: "inline-flex", alignItems: "center", flex: "none",
 						marginRight: -BADGE_GAP_PULL,
-						padding: "1px 6px", minHeight: "18px", borderRadius: 999, fontSize: 10, lineHeight: "14px",
-						color: "var(--dsw-alias-label-tertiary)",
+						padding: "1px 5px", minHeight: "17px", borderRadius: 4, fontSize: 10, lineHeight: "14px",
+						color: "var(--dsw-alias-label-secondary)",
 						background: "var(--dsw-alias-bg-layer-3)",
-						border: "1px solid var(--dsw-alias-border-l2)",
-						fontWeight: 400, letterSpacing: ".01em",
+						border: "0.5px solid var(--dsw-alias-border-l2)",
+						boxShadow: "0 1px 0 var(--dsw-alias-border-l3)",
+						fontWeight: 600,
 						whiteSpace: "nowrap", maxWidth: "140px", overflow: "hidden", textOverflow: "ellipsis",
 						cursor: "default"
 					},
