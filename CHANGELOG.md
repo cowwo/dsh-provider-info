@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] - 2026-09-09
+
+### Fixed
+- 悬浮浮窗“时灵时不灵 / 移开后忽然弹出”：给每次悬停加**代际号**，`showTip` 的每个 `await` 之后校验（悬停已结束/已取消就丢弃结果），不再出现“悬停没反应、移开后请求回来才弹出”。
+- 悬浮卡顿：面板改为**渐进渲染**——悬停立即用内存缓存同步显示（余量未就绪时先显示「刷新中…」占位），慢数据（首次 provider 配置 / 目录真值 / 余量）在后台补齐后重绘；不再等网络才 `display`。
+- 性能：host 端 Command Code 两个查询接口改 **Promise.all 并行**（冷启动实测 2575ms → 1338ms）；host 与 client 都加了**同 provider 在途请求合并**，快速反复悬停不再堆请求。
+- 手感：悬停唤起延迟 250ms → **120ms**；从标签移向按钮本体改为 **120ms 宽限**（短暂擦边不丢悬停；模型下拉已展开或点击按钮时仍立即收起）；标签热区各方向**透明外扩 6px**（视觉不变、更耐悬停）。
+- 徽章挂载：新增 **300ms 存在性看护**（替代只靠 2s 轮询），React 重挂/会话切换后尽快补挂徽章，减少“悬停完全没反应”的窗口。
+
 ## [0.7.6] - 2026-09-09
 
 ### Changed

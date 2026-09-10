@@ -20,6 +20,7 @@ DeepSeek Harness can be configured with several AI providers at once, and each p
   - **Current model info**: model ID, display name, description, available reasoning efforts, the current reasoning effort, context window, max tokens, supported input modalities, and compat info.
 - Missing values are shown as `未提供`; long values wrap.
 - The label updates automatically as you switch models.
+- **Instant on hover**: the panel renders immediately from local caches (the quota block shows a `刷新中…` placeholder until data arrives, then fills in the background), so it never "ignores your hover and pops up after you leave"; the label's hover target is slightly larger than it looks, so brushing past it won't drop the tooltip.
 - **Never touches your keys**: it only shows the *environment variable name* for the credential — it never reads or shows the actual secret.
 - **Quota / balance section**: for providers that support it, the hover panel also shows the provider's remaining quota — DeepSeek account balance, or OpenCode Go's 5-hour / weekly / monthly usage limits with reset countdowns. Recognized-but-unsupported providers show `暂不支持该供应商查询`; missing keys or query failures show `未配置 API Key` / `查询失败`.
   - DeepSeek: `GET /user/balance` (read-only, never charges you nor burns tokens).

@@ -205,6 +205,13 @@ window.__ModuleLoader__.load({
 		// host 端 providerBadge/balance 另有 5 分钟缓存，二者叠加避免频繁请求。
 		const quotaShared = { rpc: null };
 		const quotaCache = new Map(); // key: provider 路由键 -> { fetchedAt, value }
+		// 并发去重：同一 provider 的查询在途时就复用同一个 Promise，快速反复悬停不会堆请求。
+		const quotaInflight = new Map(); // key: provider + '|' + force -> Promise
+		/** 读当前缓存里的余量（不触发网络）——悬浮窗先据此立即渲染，避免“面板等网络”。 */
+		const peekQuota = (provider) => {
+			const c = quotaCache.get(provider);
+			return c && c.value ? c.value : null;
+		};
 		/** 读取/枚举所有可查询余量的提供商（官方 + 自定义，host 端 providerBadge/providers 合并）。 */
 		async function fetchProviderList() {
 			const rpc = quotaShared.rpc;
@@ -224,29 +231,38 @@ window.__ModuleLoader__.load({
 				return [];
 			}
 		}
-		/** 查询单个 provider 余量；命中 client 缓存直接回，命中后回写缓存。 */
+		/** 查询单个 provider 余量；命中 client 缓存直接回，命中后回写缓存；同键并发复用同一 Promise。 */
 		async function fetchProviderQuota(provider, cfg, force) {
 			if (!quotaShared.rpc) return null;
 			const cached = quotaCache.get(provider);
 			if (!force && cached && cached.value && cached.value.recognized && cached.value.supported && !cached.value.error) {
 				return cached.value;
 			}
-			try {
-				const resp = await quotaShared.rpc.call("/api", "providerBadge/balance", {
-					args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null, force: !!force } }
-				});
-				const b = resp && resp.ok ? (resp.value || null) : null;
-				if (b && b.recognized && b.supported && !b.error) {
-					quotaCache.set(provider, { fetchedAt: Date.now(), value: b });
-				} else {
+			const inflightKey = provider + "|" + (force ? "force" : "cached");
+			const running = quotaInflight.get(inflightKey);
+			if (running) return running;
+			const task = (async () => {
+				try {
+					const resp = await quotaShared.rpc.call("/api", "providerBadge/balance", {
+						args: { request: { provider, baseURL: cfg && cfg.baseURL || null, apiKeyEnv: cfg && cfg.apiKeyEnv || null, force: !!force } }
+					});
+					const b = resp && resp.ok ? (resp.value || null) : null;
+					if (b && b.recognized && b.supported && !b.error) {
+						quotaCache.set(provider, { fetchedAt: Date.now(), value: b });
+					} else {
+						quotaCache.delete(provider);
+					}
+					return b;
+				} catch (e) {
+					console.warn("[provider-badge] 余量查询失败", e);
 					quotaCache.delete(provider);
+					return null;
+				} finally {
+					quotaInflight.delete(inflightKey);
 				}
-				return b;
-			} catch (e) {
-				console.warn("[provider-badge] 余量查询失败", e);
-				quotaCache.delete(provider);
-				return null;
-			}
+			})();
+			quotaInflight.set(inflightKey, task);
+			return task;
 		}
 		// ---- 余量结果 → 表格单元格归一化（供设置页表格使用，自包含不依赖悬浮闭包）----
 		const _num2 = (n) => { var v = Number(n); return v === v ? v.toFixed(2) : ""; };
@@ -306,18 +322,27 @@ window.__ModuleLoader__.load({
 		//#region 提供商徽章 + 悬浮信息浮层
 		function installProviderBadge(sessions, api, rpc) {
 			const SLOT = '[data-slot="conversation.input.model"]';
-			const SHOW_DELAY = 250;
-			const HIDE_DELAY = 100;
+			const SHOW_DELAY = 120;      // 悬停唤起延迟（数据已缓存时几乎无感；比旧的 250ms 更跟手）
+			const HIDE_DELAY = 100;      // 移出（进入浮窗/其它区域）后的宽限，便于顺势挪进浮窗
+			const LEAVE_GRACE = 120;     // 从标签移入按钮本体时的宽限：短暂擦边不丢悬停（点击按钮仍立即收起）
+			const ATTACH_CHECK_MS = 300; // 徽章存在性看护间隔：React 重挂后尽快补回，避免“悬停无反应”
 			const UNKNOWN = "未提供"; // 兼容外部引用（实际显示走 tx("unknown")）
 			let badge = null;
+			let badgeLabel = null;
 			let seatBtnEl = null;
 			let noticed = false;
 			let lastText = null;
+			// 悬停会话代际：enter/leave/点击时自增；showTip 的每个 await 后校验，过期结果直接丢弃，
+			// 从而避免“悬停时没反应、移开后请求回来才忽然弹出”。
+			let showSeq = 0;
 			// 缓存：provider 配置（settings.describe 的 llm-pi-ai.providers[provider]）与目录真值（rpc modelInfo）
 			let providerCfgCache = null;
 			let providerCfgKey = null;
 			let modelInfoCache = null;
 			let modelInfoKey = null;
+			/** 只读缓存（不发请求）：悬浮窗先用缓存同步渲染，慢数据后台补齐。 */
+			const peekProviderCfg = (provider) => (providerCfgCache && providerCfgKey === provider ? providerCfgCache : null);
+			const peekModelInfo = (provider, model) => (modelInfoCache && modelInfoKey === provider + "/" + model ? modelInfoCache : null);
 
 			const noticeOnce = () => {
 				if (noticed) return;
@@ -632,77 +657,114 @@ window.__ModuleLoader__.load({
 				t.appendChild(box);
 				return { box, body, btn };
 			};
-			const showTip = async () => {
-				if (!badge) return;
-				try {
-					const sessionId = sessions.list.getSnapshot().current;
-					if (typeof sessionId !== "string") return;
-					const { result } = await api.sessions.models({ sessionId });
-					const value = result && result.ok ? result.value : null;
-					if (!value || !value.current) return;
-					const provider = value.current.provider;
-					const model = value.current.model;
-					const group = (value.groups || []).find((g) => g && g.id === provider);
-					const modelEntry = group && group.models
-						? (group.models || []).find((m) => m && m.id === model)
-						: null;
-					const cfg = await resolveProviderCfg(provider);
-					const mi = await resolveModelInfo(provider, model);
+			// 同步渲染面板：只用手上已有的数据（内存缓存），不发任何请求 —— 保证悬停立刻可见。
+			// bal 为 null 且 balancePending 时，余量区块先渲染「刷新中…」占位，后台查询回来再重绘。
+			const renderTip = (value, cfg, mi, bal, balancePending, balanceProvider, balanceCfg) => {
+				const provider = value.current.provider;
+				const model = value.current.model;
+				const group = (value.groups || []).find((g) => g && g.id === provider);
+				const modelEntry = group && group.models
+					? (group.models || []).find((m) => m && m.id === model)
+					: null;
+				const efforts = (modelEntry && modelEntry.reasoning && modelEntry.reasoning.efforts) || [];
+				const currentEffortId = value.current.reasoningEffort || (modelEntry && modelEntry.reasoning && modelEntry.reasoning.defaultEffort);
+				const currentEffort = efforts.find((e) => e && e.id === currentEffortId);
+				const effortLabel = (currentEffort && currentEffort.name) || currentEffortId || "Default";
+				const compatObj = (cfg && cfg.models && cfg.models.find && cfg.models.find((m) => m && m.id === model)?.compat);
+				const compatText = compatObj && typeof compatObj === "object" && Object.keys(compatObj).length > 0
+					? JSON.stringify(compatObj)
+					: null;
 
-					const efforts = (modelEntry && modelEntry.reasoning && modelEntry.reasoning.efforts) || [];
-					const currentEffortId = value.current.reasoningEffort || (modelEntry && modelEntry.reasoning && modelEntry.reasoning.defaultEffort);
-					const currentEffort = efforts.find((e) => e && e.id === currentEffortId);
-					const effortLabel = (currentEffort && currentEffort.name) || currentEffortId || "Default";
-					const compatObj = (cfg && cfg.models && cfg.models.find && cfg.models.find((m) => m && m.id === model)?.compat);
-					const compatText = compatObj && typeof compatObj === "object" && Object.keys(compatObj).length > 0
-						? JSON.stringify(compatObj)
-						: null;
-
-					const t = ensureTip();
-					t.innerHTML = "";
-					t.appendChild(heading(tx("provider")));
-					t.appendChild(row(tx("displayName"), (group && group.name) || provider));
-					t.appendChild(row("Provider ID", provider));
-					t.appendChild(row(tx("apiProtocol"), cfg && cfg.api || null));
-					t.appendChild(row(tx("apiAddress"), cfg && cfg.baseURL || null));
-					t.appendChild(row(tx("apiKeyEnv"), cfg && cfg.apiKeyEnv || null));
-					t.appendChild(heading(tx("currentModel")));
-					t.appendChild(row(tx("modelId"), model));
-					t.appendChild(row(tx("modelDisplayName"), (modelEntry && modelEntry.name) || model));
-					t.appendChild(row(tx("modelDescription"), modelEntry && modelEntry.description || null));
-					t.appendChild(row(tx("reasoningLevel"), efforts.map((e) => e && e.name || e.id).join(" / ") || null));
-					t.appendChild(row(tx("currentReasoningLevel"), effortLabel));
-					t.appendChild(row(tx("contextWindow"), mi && mi.contextWindow != null ? String(mi.contextWindow) : null));
-					t.appendChild(row(tx("maxToken"), mi && mi.maxTokens != null ? String(mi.maxTokens) : null));
-					t.appendChild(row(tx("inputModes"), mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
-					t.appendChild(row(tx("compatInfo"), compatText));
-					// ---- 余量（余额/限额）：已识别厂商才展示 ----
-					// 识别用 provider 与展示用 provider 解耦：识图开启时 current.provider 是 `xxx-vision`，
-					// 这里剥掉 -vision 后缀还原主 provider，用主 provider 的配置（baseURL/密钥）去识别厂商并查余量；
-					// 浮层上方的 Provider ID / 显示名称 / API 地址 / 密钥等展示字段仍用原始 provider，不受影响。
-					const balanceProvider = bareProvider(provider);
-					const balanceCfg = balanceProvider === provider ? cfg : await resolveProviderCfg(balanceProvider);
-					// 悬停立即刷新：开启时每次悬停都强制重查（绕缓存）；否则走默认 5 分钟缓存。
-					const bal = await resolveBalance(balanceProvider, balanceCfg, QSettings.hoverRefresh);
-					// 任何查询结果（含“未识别/暂不支持”）都展示余量区块——不支持的提供商显示明确提示行。
+				const t = ensureTip();
+				t.innerHTML = "";
+				t.appendChild(heading(tx("provider")));
+				t.appendChild(row(tx("displayName"), (group && group.name) || provider));
+				t.appendChild(row("Provider ID", provider));
+				t.appendChild(row(tx("apiProtocol"), cfg && cfg.api || null));
+				t.appendChild(row(tx("apiAddress"), cfg && cfg.baseURL || null));
+				t.appendChild(row(tx("apiKeyEnv"), cfg && cfg.apiKeyEnv || null));
+				t.appendChild(heading(tx("currentModel")));
+				t.appendChild(row(tx("modelId"), model));
+				t.appendChild(row(tx("modelDisplayName"), (modelEntry && modelEntry.name) || model));
+				t.appendChild(row(tx("modelDescription"), modelEntry && modelEntry.description || null));
+				t.appendChild(row(tx("reasoningLevel"), efforts.map((e) => e && e.name || e.id).join(" / ") || null));
+				t.appendChild(row(tx("currentReasoningLevel"), effortLabel));
+				t.appendChild(row(tx("contextWindow"), mi && mi.contextWindow != null ? String(mi.contextWindow) : null));
+				t.appendChild(row(tx("maxToken"), mi && mi.maxTokens != null ? String(mi.maxTokens) : null));
+				t.appendChild(row(tx("inputModes"), mi && mi.input && mi.input.length ? mi.input.join(" / ") : null));
+				t.appendChild(row(tx("compatInfo"), compatText));
+				// ---- 余量（余额/限额）----
+				// 识别用 provider 与展示用 provider 解耦：识图开启时 current.provider 是 `xxx-vision`，
+				// 这里剥掉 -vision 后缀还原主 provider，用主 provider 的配置（baseURL/密钥）去识别厂商并查余量；
+				// 浮层上方的 Provider ID / 显示名称 / API 地址 / 密钥等展示字段仍用原始 provider，不受影响。
+				if (bal || balancePending) {
+					const mb = mountBalanceBlock(t);
+					lastBalanceBox = mb;
+					lastBalanceCtx = { provider: balanceProvider, cfg: balanceCfg };
 					if (bal) {
-						const mb = mountBalanceBlock(t);
-						lastBalanceBox = mb;
-						lastBalanceCtx = { provider: balanceProvider, cfg: balanceCfg };
 						const els = buildRowEls(bal);
 						if (els && els.length) {
 							for (var bi = 0; bi < els.length; bi++) mb.body.appendChild(els[bi]);
 						} else {
 							mb.body.appendChild(row(tx("balance"), tx("queryFailed")));
 						}
+					} else {
+						// 首次查询/后台强刷尚未回来：先给占位，回来后再重绘，避免“悬停没反应”。
+						mb.body.appendChild(row(tx("balance"), tx("refreshing")));
 					}
+				}
 
-					// 字体大小：大/中/小。用 transform scale + transform-origin: bottom center —— 缩放以「底边中心」（贴住模型选择器的那条边）为原点，
-					// 这样无论大中小，面板底边都始终贴着选择器，不会像 zoom（左上角为原点）一样切换时位置飘移。
-					t.style.transform = QSettings.fontSize === "large" ? "scale(1.15)" : QSettings.fontSize === "small" ? "scale(0.85)" : "scale(1)";
-					t.style.display = "block";
-					// 锚定整个模型选择器（而非小徽章）：弹窗永远紧贴选择器上方，水平与它中心对齐。
-					position(seatBtnEl || badge);
+				// 字体大小：大/中/小。用 transform scale + transform-origin: bottom center —— 缩放以「底边中心」（贴住模型选择器的那条边）为原点，
+				// 这样无论大中小，面板底边都始终贴着选择器，不会像 zoom（左上角为原点）一样切换时位置飘移。
+				t.style.transform = QSettings.fontSize === "large" ? "scale(1.15)" : QSettings.fontSize === "small" ? "scale(0.85)" : "scale(1)";
+				t.style.display = "block";
+				// 锚定整个模型选择器（而非小徽章）：弹窗永远紧贴选择器上方，水平与它中心对齐。
+				position(seatBtnEl || badge);
+			};
+
+			/**
+			 * 悬停唤起浮层：先同步渲染（缓存命中即时可见），慢数据（首次的 provider 配置 / 目录真值 /
+			 * 余量）在后台补齐后重绘。每个 await 后都用 seq 校验悬停会话是否仍有效，过期即丢弃。
+			 */
+			const showTip = async (seq) => {
+				if (!badge) return;
+				const live = () => seq === showSeq && hovering;
+				try {
+					const sessionId = sessions.list.getSnapshot().current;
+					if (typeof sessionId !== "string") return;
+					const { result } = await api.sessions.models({ sessionId });
+					if (!live()) return;
+					const value = result && result.ok ? result.value : null;
+					if (!value || !value.current) return;
+					const provider = value.current.provider;
+					const model = value.current.model;
+					const balanceProvider = bareProvider(provider);
+
+					// 1) 先渲染：全部来自内存缓存，不发请求（首次未缓存的行显示“未提供”，余量显示“刷新中…”）。
+					const cfgCached = peekProviderCfg(provider);
+					const miCached = peekModelInfo(provider, model);
+					const balCached = peekQuota(balanceProvider);
+					const needCfg = !cfgCached;
+					const needMi = !miCached;
+					// 开了「悬停自动刷新」时即使有缓存也要后台强刷一次（不阻塞显示）。
+					const needBal = !balCached || !!QSettings.hoverRefresh;
+					renderTip(value, cfgCached, miCached, balCached, needBal, balanceProvider,
+						balanceProvider === provider ? cfgCached : null);
+					if (!needCfg && !needMi && !needBal) return; // 全命中：到此为止（丝滑路径）
+
+					// 2) 后台补齐/刷新；任何一个 await 之后鼠标已离开就丢弃，绝不“移出后忽然弹出”。
+					const cfg = cfgCached || await resolveProviderCfg(provider);
+					if (!live()) return;
+					const mi = miCached || await resolveModelInfo(provider, model);
+					if (!live()) return;
+					const balanceCfg = balanceProvider === provider ? cfg : await resolveProviderCfg(balanceProvider);
+					if (!live()) return;
+					let bal = balCached;
+					if (needBal) {
+						bal = await resolveBalance(balanceProvider, balanceCfg, !!QSettings.hoverRefresh);
+						if (!live()) return;
+					}
+					renderTip(value, cfg, mi, bal, false, balanceProvider, balanceCfg);
 				} catch (e) {
 					console.warn("[provider-badge] 浮层刷新失败", e);
 				}
@@ -711,26 +773,32 @@ window.__ModuleLoader__.load({
 				if (tip) tip.style.display = "none";
 			};
 			// 悬浮热区只绑在提供商徽章小标签上：悬停标签才弹浮窗；
-			// 鼠标一旦移向按钮本体/模型下拉区域立即收起，避免弹层遮挡模型选择。
+			// 移向按钮本体短暂宽限（LEAVE_GRACE）后收起——避免标签小、擦边就丢悬停；
+			// 若模型下拉已展开（aria-expanded=true）则立即收起，绝不遮挡正在选的菜单。
 			const onEnter = () => {
 				hovering = true;
 				if (hideTimer) clearTimeout(hideTimer);
 				hideTimer = null;
 				if (showTimer) clearTimeout(showTimer);
-				showTimer = setTimeout(showTip, SHOW_DELAY);
+				const seq = ++showSeq; // 本次悬停会话的代际
+				showTimer = setTimeout(() => { showTimer = null; showTip(seq); }, SHOW_DELAY);
 			};
 			const onLeave = (e) => {
+				const next = e && e.relatedTarget;
+				const intoTip = !!(tip && next && (next === tip || (tip.contains && tip.contains(next))));
 				hovering = false;
 				if (showTimer) clearTimeout(showTimer);
 				showTimer = null;
 				if (hideTimer) clearTimeout(hideTimer);
 				hideTimer = null;
-				// 移入按钮本体（模型选择器文字/箭头等，通常是想点开下拉选模型）→ 立即收起，绝不遮挡。
-				// 只有移出到浮窗或页面其它区域时才走 HIDE_DELAY 缓冲，方便顺势挪进浮窗查看。
-				const next = e && e.relatedTarget;
+				// 只要不是挪进浮窗，就结束本次悬停会话：在途的 showTip 结果一律作废，
+				// 这样不会出现“悬停时没反应、移开后请求回来才忽然弹出”。
+				if (!intoTip) showSeq++;
 				const stayingOnSeat = seatBtnEl && next && (next === seatBtnEl || (seatBtnEl.contains && seatBtnEl.contains(next)));
 				if (stayingOnSeat) {
-					hideTip();
+					const menuOpen = !!(seatBtnEl.getAttribute && seatBtnEl.getAttribute("aria-expanded") === "true");
+					if (menuOpen) { hideTip(); return; }
+					hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, LEAVE_GRACE);
 					return;
 				}
 				hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, HIDE_DELAY);
@@ -757,13 +825,22 @@ window.__ModuleLoader__.load({
 						badge = document.createElement("span");
 						Object.assign(badge.style, {
 							display: "inline-flex", alignItems: "center", flex: "none",
-							padding: "0 5px", borderRadius: 999, fontSize: 10, lineHeight: "14px",
+							position: "relative", boxSizing: "border-box",
+							padding: "1px 6px", minHeight: "18px", borderRadius: 999, fontSize: 10, lineHeight: "14px",
 							color: "var(--dsw-alias-label-tertiary)",
 							background: "var(--dsw-alias-bg-layer-3)",
 							border: "1px solid var(--dsw-alias-border-l2)",
 							fontWeight: 400, letterSpacing: ".01em",
 							whiteSpace: "nowrap"
 						});
+						// 透明外扩热区：视觉不变、命中范围各方向 +6px，避免标签太小“擦边即丢悬停”。
+						const hit = document.createElement("span");
+						Object.assign(hit.style, { position: "absolute", left: "-6px", right: "-6px", top: "-6px", bottom: "-6px" });
+						badge.appendChild(hit);
+						// 文本单独一个子节点：tick 只改它的内容，不会把热区节点一起清掉。
+						badgeLabel = document.createElement("span");
+						Object.assign(badgeLabel.style, { position: "relative", pointerEvents: "none" });
+						badge.appendChild(badgeLabel);
 						// 滚动：仅在鼠标不在悬停区（浮窗/徽章标签）时才隐藏，避免浮层错位；
 						// 鼠标停在浮窗/按钮上时（正在查看/点击刷新）滚动不打断。尺寸变化时始终隐藏。
 						window.addEventListener("scroll", () => { if (!hovering) hideTip(); }, { passive: true, capture: true });
@@ -778,6 +855,7 @@ window.__ModuleLoader__.load({
 						seatBtn.__piClickBound = true;
 						seatBtn.addEventListener("click", () => {
 							hovering = false;
+							showSeq++; // 作废在途的 showTip
 							if (showTimer) { clearTimeout(showTimer); showTimer = null; }
 							if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
 							hideTip();
@@ -787,7 +865,7 @@ window.__ModuleLoader__.load({
 					if (typeof sessionId !== "string") return;
 					const { result } = await api.sessions.models({ sessionId });
 					const text = result && result.ok ? labelFor(result.value) : null;
-					badge.textContent = text || "";
+					if (badgeLabel) badgeLabel.textContent = text || ""; else badge.textContent = text || "";
 					if ((text || null) !== lastText) {
 						lastText = text || null;
 						if (!text) noticeOnce();
@@ -797,7 +875,18 @@ window.__ModuleLoader__.load({
 					noticeOnce();
 				}
 			};
-			// 2s 轮询（最简形态，不耦合 React 生命周期）
+			// 徽章存在性轻量看护：React 重挂/会话切换会把外来节点摘掉，之前要等 2s 轮询才补回，
+			// 这里用 300ms 的轻量检查把“悬停完全没反应”的窗口压到最小。
+			const ensureBadgeAttached = () => {
+				try {
+					const seatBtn = document.querySelector(SLOT + " button");
+					if (!seatBtn || !badge) return;
+					if (seatBtnEl !== seatBtn) seatBtnEl = seatBtn;
+					if (badge.parentNode !== seatBtn) seatBtn.insertBefore(badge, seatBtn.firstChild);
+				} catch (e) { /* 忽略：下一轮再看护 */ }
+			};
+			setInterval(ensureBadgeAttached, ATTACH_CHECK_MS);
+			// 2s 轮询（最简形态，不耦合 React 生命周期）：刷新徽章文本 + 兜底补挂。
 			setInterval(tick, 2000);
 			tick();
 			// 读取持久化设置（悬停立即刷新 / 自动刷新间隔），并开启自动刷新调度。
