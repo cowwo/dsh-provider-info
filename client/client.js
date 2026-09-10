@@ -962,6 +962,15 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * 徽章与模型座的实际间距。
+		 * DSH 的 InputBar `.trailing` 容器（徽章与模型座的共同父级）是 `gap: 12px`；
+		 * 槽位锚点 `<div data-slot=… style="display:contents">` 不产生盒子，所以徽章就是该
+		 * flex 行的直接子项 —— 用负 margin-right 抵消掉多余部分，把 12px 压到 4px。
+		 * 想改成 2px：把 8 改成 10（12 - 10 = 2）。
+		 */
+		const BADGE_GAP_PULL = 8;
+
+		/**
 		 * 官方槽位承载（推荐）：徽章作为 conversation.input.right 的贡献项 —— 模型座左侧的官方空槽。
 		 * 位置与排列完全交给 DSH（槽位锚点是 display:contents，徽章成为 trailing flex 行里的一项），
 		 * 徽章不再是模型按钮的一部分；文本订阅模型目录 store 变化，浮层复用 createTipController。
@@ -984,15 +993,32 @@ window.__ModuleLoader__.load({
 				}, []);
 				React.useEffect(() => {
 					let alive = true;
+					let reading = false;
 					const currentId = () => (typeof sessionId === "string" ? sessionId : sessions.list.getSnapshot().current);
-					const read = async () => {
+					const apply = (result) => {
+						if (!alive) return;
+						setText(result && result.ok ? (labelFor(result.value) || "") : "");
+					};
+					// 订阅回调必须**只读**：绝不能调用会写 store 的 models()（它在状态 ≠ ready 时会
+					// await directory.load()，而 load() 必然重新发布状态且把 selecting 原样写回），
+					// 否则「通知 → load → 再通知」会形成纯微任务的自持循环，饿死事件循环。
+					// reading 闸门是纯防御：被通知期间 store 可能再次发布，重入直接丢弃。
+					const read = () => {
+						if (reading) return;
+						reading = true;
 						const id = currentId();
-						if (typeof id !== "string") return;
-						try {
-							const { result } = await api.sessions.models({ sessionId: id });
-							if (!alive) return;
-							setText(result && result.ok ? (labelFor(result.value) || "") : "");
-						} catch (e) { /* 读取失败保持现状，避免文本抖动 */ }
+						if (typeof id !== "string") { reading = false; return; }
+						if (typeof api.modelsSnapshot === "function") {
+							try { apply(api.modelsSnapshot({ sessionId: id }).result); }
+							catch (e) { /* 目录尚未就绪：保持现状，等下一次通知 */ }
+							reading = false;
+							return;
+						}
+						// 旧版数据源没有只读入口：异步读取，只用于 2s 轮询兜底（宏任务，不会重入）。
+						api.sessions.models({ sessionId: id }).then(
+							({ result }) => { apply(result); reading = false; },
+							() => { reading = false; }
+						);
 					};
 					read();
 					// 目录 store 变化即刷新（比轮询即时）；旧版数据源没有 subscribe 时退回 2s 轮询。
@@ -1008,6 +1034,7 @@ window.__ModuleLoader__.load({
 					title: text,
 					style: {
 						display: "inline-flex", alignItems: "center", flex: "none",
+						marginRight: -BADGE_GAP_PULL,
 						padding: "1px 6px", minHeight: "18px", borderRadius: 999, fontSize: 10, lineHeight: "14px",
 						color: "var(--dsw-alias-label-tertiary)",
 						background: "var(--dsw-alias-bg-layer-3)",
@@ -1252,6 +1279,21 @@ window.__ModuleLoader__.load({
 						}
 						// 目录已就绪但还没有当前选择（如无模型可用的会话）→ ok，调用方按“无提供商”处理。
 						return { result: { ok: true, value: snap } };
+					},
+					/**
+					 * **只读**读取目录快照：绝不触发 load()、绝不写 store、绝不通知订阅者。
+					 * 专供订阅回调使用 —— 在 store 通知期间调用任何会写 store 的方法都会形成自持循环。
+					 * @returns { result: { ok: true, value: snapshot } }，或目录/作用域未就绪时的 { ok: false }。
+					 */
+					modelsSnapshot: (arg) => {
+						const sessionId = arg && arg.sessionId;
+						if (typeof sessionId !== "string") return { result: { ok: false } };
+						try {
+							return { result: { ok: true, value: dirs.directoryFor(sessionId).store.getSnapshot() } };
+						} catch (e) {
+							// 会话作用域尚未就绪（如刚打开/子代理会话）→ 静默，等下一次通知。
+							return { result: { ok: false } };
+						}
 					}
 				},
 				settings: {
@@ -1284,17 +1326,23 @@ window.__ModuleLoader__.load({
 
 		function apply(ctx) {
 			// 注册 i18n 字典（跟随系统时由 DSH locale 决定语言）
+			// 必须走 ctx.inject(["locale"])：直接读 ctx.locale 会抛
+			// "cannot get property locale without inject"，且不会有任何注册效果。
 			try {
-				if (ctx.locale && typeof ctx.locale.register === "function") {
-					ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), "provider-info: locales");
-				}
+				ctx.inject(["locale"], (loc) => {
+					if (loc.locale && typeof loc.locale.register === "function") {
+						loc.effect(() => loc.locale.register(LOCALE_NS, { zh, en }), "provider-info: locales");
+					}
+				});
 			} catch (e) { console.warn("[provider-badge] 注册字典失败", e); }
 			// resolveLang：手动 language 优先；system 时跟随 DSH 当前界面语言
 			resolveLang = () => {
 				const pref = QSettings.language;
 				if (pref === "en" || pref === "zh") return pref;
 				try {
-					const active = ctx.locale && ctx.locale.getLocale ? ctx.locale.getLocale().active : null;
+					// 可选读取：locale 未就绪时为 undefined，回退 "zh"。
+					const locale = ctx.get("locale");
+					const active = locale && locale.getLocale ? locale.getLocale().active : null;
 					return (active === "zh" || active === "en") ? active : "zh";
 				} catch (e) { return "zh"; }
 			};

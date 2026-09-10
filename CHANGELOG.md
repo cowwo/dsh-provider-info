@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-10
+
+### Fixed
+- **修复切换模型导致浏览器卡死（页面无响应、CPU 占满一核、内存涨到 GB 级）**。根因：徽章订阅模型目录 store 后，在订阅回调里调用门面 `models()`，而该门面在状态 ≠ `ready` 时会 `await directory.load()`；`load()` 又必然重新发布 store 状态，且核心 `syncInputs()` 会把 `selecting` 原样写回 —— 于是「store 通知 → load → 再通知」形成**纯微任务的自持循环**，饿死事件循环，`selectModel` 的 RPC 回包永远无法送达，状态永远停在 `selecting`。
+- 修复方式：订阅回调改为**只读快照**，不再触发任何写操作。
+  - 新增门面方法 `modelsSnapshot(sessionId)`：直接 `directoryFor(sessionId).store.getSnapshot()`，**绝不**调用 `load()`、绝不写 store、绝不通知订阅者。
+  - 徽章 `read()` 改用 `modelsSnapshot`（同步、只读）；旧版数据源没有该入口时仍退回异步读取，且只用于 2s 轮询兜底（宏任务，不会重入）。
+  - 保留 `models()` 原有「确保已加载」语义不变 —— 悬停浮层首次打开仍需要它来触发加载。
+  - 追加防重入闸门（重入直接丢弃），作为对未来改动的纯防御。
+- 修复 i18n 字典注册时的 `cannot get property "locale" without inject`：改用 `ctx.inject(["locale"], …)` 注册，`resolveLang` 改用可选读取 `ctx.get("locale")`。此前该错误每次加载都会打印，且字典实际并未注册成功。
+
+### Changed
+- 徽章与模型选择器的间距由 12px 收紧到 **4px**，视觉上更贴近模型座。DSH 的 `InputBar .trailing` 容器（徽章与模型座的共同父级）是 `gap: 12px`，槽位锚点为 `display:contents` 因而不产生盒子 —— 徽章即该 flex 行的直接子项，故用 `marginRight: -8px` 抵消多余间距。数值集中在 `BADGE_GAP_PULL` 常量，改 2px 只需把 8 改成 10。
+
+### Verified
+- 用还原真实 store 语义（同步通知、无等值去重、`selecting` 原样写回）的仿真脚本对照三种实现：0.8.0 现状在 20 万次读 / 20 万次 `load()` 后仍未收敛且 RPC 回包始终未送达；修复后在 4 次读、**0 次 `load()`** 内收敛，回包正常送达。
+
 ## [0.8.0] - 2026-09-10
 
 ### Changed
