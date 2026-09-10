@@ -320,18 +320,49 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		//#region 提供商徽章 + 悬浮信息浮层
-		function installProviderBadge(sessions, api, rpc) {
-			const SLOT = '[data-slot="conversation.input.model"]';
-			const SHOW_DELAY = 120;      // 悬停唤起延迟（数据已缓存时几乎无感；比旧的 250ms 更跟手）
-			const HIDE_DELAY = 100;      // 移出（进入浮窗/其它区域）后的宽限，便于顺势挪进浮窗
-			const LEAVE_GRACE = 120;     // 从标签移入按钮本体时的宽限：短暂擦边不丢悬停（点击按钮仍立即收起）
-			const ATTACH_CHECK_MS = 300; // 徽章存在性看护间隔：React 重挂后尽快补回，避免“悬停无反应”
+		/** 徽章文本：显示名称优先，回退 Provider ID（提供商路由键）。 */
+		function labelFor(value) {
+			const current = value && value.current;
+			const provider = current && current.provider;
+			if (!provider) return null;
+			const group = (value.groups || []).find((g) => g && g.id === provider);
+			return (group && group.name) || provider;
+		}
+		let decoratorNoticeShown = false;
+		/** 装饰失效的显式提示（ADR-0001：显式失败，不静默）。两种承载方式共用。 */
+		function noticeDecoratorFailure() {
+			if (decoratorNoticeShown) return;
+			decoratorNoticeShown = true;
+			const el = document.createElement("div");
+			el.textContent = "provider 装饰失效";
+			Object.assign(el.style, {
+				position: "fixed", right: "16px", bottom: "16px", zIndex: 9999,
+				padding: "6px 10px", borderRadius: "8px", fontSize: 12,
+				color: "var(--dsw-alias-label-secondary)",
+				background: "var(--dsw-alias-bg-layer-3)",
+				border: "1px solid var(--dsw-alias-border-l2)"
+			});
+			document.body.appendChild(el);
+		}
+
+		/**
+		 * 悬浮浮层控制器：拥有浮层 DOM、悬停状态机（唤起延迟 / 收起宽限 / 代际取消）、
+		 * 渐进渲染与后台刷新。热区（徽章）与定位锚点由调用方提供，两种承载方式共用同一套逻辑：
+		 *   ① 官方槽位 conversation.input.right 里的 React 徽章（推荐，见 makeSlotBadge）
+		 *   ② 旧版 DSH 回退：往模型座按钮内注入 DOM 徽章（seatAnchorMode）
+		 */
+		function createTipController(opts) {
+			const sessions = opts.sessions;
+			const api = opts.api;
+			const rpc = opts.rpc;
+			const fixedSessionId = typeof opts.sessionId === "string" ? opts.sessionId : null;
+			const getAnchor = opts.getAnchor || (() => null);   // 浮层定位锚点（模型座容器）
+			const getHotzone = opts.getHotzone || (() => null); // 悬停热区（徽章元素）
+			const seatAnchorMode = !!opts.seatAnchorMode;       // 徽章是否嵌在模型座按钮内（旧版回退路径）
+			const SHOW_DELAY = 120;      // 悬停唤起延迟（数据已缓存时几乎无感）
+			const HIDE_DELAY = 100;      // 移出后的宽限，便于顺势挪进浮窗
+			const LEAVE_GRACE = 120;     // 旧版回退路径：从徽章移入按钮本体时的宽限
 			const UNKNOWN = "未提供"; // 兼容外部引用（实际显示走 tx("unknown")）
-			let badge = null;
-			let badgeLabel = null;
-			let seatBtnEl = null;
-			let noticed = false;
-			let lastText = null;
 			// 悬停会话代际：enter/leave/点击时自增；showTip 的每个 await 后校验，过期结果直接丢弃，
 			// 从而避免“悬停时没反应、移开后请求回来才忽然弹出”。
 			let showSeq = 0;
@@ -343,29 +374,6 @@ window.__ModuleLoader__.load({
 			/** 只读缓存（不发请求）：悬浮窗先用缓存同步渲染，慢数据后台补齐。 */
 			const peekProviderCfg = (provider) => (providerCfgCache && providerCfgKey === provider ? providerCfgCache : null);
 			const peekModelInfo = (provider, model) => (modelInfoCache && modelInfoKey === provider + "/" + model ? modelInfoCache : null);
-
-			const noticeOnce = () => {
-				if (noticed) return;
-				noticed = true;
-				const el = document.createElement("div");
-				el.textContent = "provider 装饰失效";
-				Object.assign(el.style, {
-					position: "fixed", right: "16px", bottom: "16px", zIndex: 9999,
-					padding: "6px 10px", borderRadius: "8px", fontSize: 12,
-					color: "var(--dsw-alias-label-secondary)",
-					background: "var(--dsw-alias-bg-layer-3)",
-					border: "1px solid var(--dsw-alias-border-l2)"
-				});
-				document.body.appendChild(el);
-			};
-
-			const labelFor = (value) => {
-				const current = value && value.current;
-				const provider = current && current.provider;
-				if (!provider) return null;
-				const group = (value.groups || []).find((g) => g && g.id === provider);
-				return (group && group.name) || provider;
-			};
 
 			// ---- 悬浮浮层 ----
 			let tip = null;
@@ -718,8 +726,8 @@ window.__ModuleLoader__.load({
 				// 这样无论大中小，面板底边都始终贴着选择器，不会像 zoom（左上角为原点）一样切换时位置飘移。
 				t.style.transform = QSettings.fontSize === "large" ? "scale(1.15)" : QSettings.fontSize === "small" ? "scale(0.85)" : "scale(1)";
 				t.style.display = "block";
-				// 锚定整个模型选择器（而非小徽章）：弹窗永远紧贴选择器上方，水平与它中心对齐。
-				position(seatBtnEl || badge);
+				// 锚定模型选择器容器（无则退化为徽章本身）：弹窗紧贴选择器上方，水平与它中心对齐。
+				position(getAnchor() || getHotzone());
 			};
 
 			/**
@@ -727,10 +735,10 @@ window.__ModuleLoader__.load({
 			 * 余量）在后台补齐后重绘。每个 await 后都用 seq 校验悬停会话是否仍有效，过期即丢弃。
 			 */
 			const showTip = async (seq) => {
-				if (!badge) return;
+				if (!getHotzone()) return;
 				const live = () => seq === showSeq && hovering;
 				try {
-					const sessionId = sessions.list.getSnapshot().current;
+					const sessionId = fixedSessionId || sessions.list.getSnapshot().current;
 					if (typeof sessionId !== "string") return;
 					const { result } = await api.sessions.models({ sessionId });
 					if (!live()) return;
@@ -794,27 +802,107 @@ window.__ModuleLoader__.load({
 				// 只要不是挪进浮窗，就结束本次悬停会话：在途的 showTip 结果一律作废，
 				// 这样不会出现“悬停时没反应、移开后请求回来才忽然弹出”。
 				if (!intoTip) showSeq++;
-				const stayingOnSeat = seatBtnEl && next && (next === seatBtnEl || (seatBtnEl.contains && seatBtnEl.contains(next)));
+				const anchorEl = getAnchor();
+				const stayingOnSeat = seatAnchorMode && anchorEl && next && (next === anchorEl || (anchorEl.contains && anchorEl.contains(next)));
 				if (stayingOnSeat) {
-					const menuOpen = !!(seatBtnEl.getAttribute && seatBtnEl.getAttribute("aria-expanded") === "true");
+					const menuOpen = !!(anchorEl.getAttribute && anchorEl.getAttribute("aria-expanded") === "true");
 					if (menuOpen) { hideTip(); return; }
 					hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, LEAVE_GRACE);
 					return;
 				}
 				hideTimer = setTimeout(() => { if (!hovering) hideTip(); }, HIDE_DELAY);
 			};
-			let boundBtn = null;
-			const attachHover = (btn) => {
-				if (boundBtn === btn) return;
-				if (boundBtn) {
-					boundBtn.removeEventListener("mouseenter", onEnter);
-					boundBtn.removeEventListener("mouseleave", onLeave);
-				}
-				boundBtn = btn;
-				btn.addEventListener("mouseenter", onEnter);
-				btn.addEventListener("mouseleave", onLeave);
+			// 滚动/尺寸变化：鼠标不在悬停区（浮窗/徽章）时隐藏，避免浮层错位；停在浮窗上时滚动不打断。
+			const onWindowScroll = () => { if (!hovering) hideTip(); };
+			const safeAdd = (target, type, fn, opts) => { try { target.addEventListener(type, fn, opts); return true; } catch (e) { return false; } };
+			const safeRemove = (target, type, fn, opts) => { try { target.removeEventListener(type, fn, opts); } catch (e) { /* 忽略 */ } };
+			safeAdd(window, "scroll", onWindowScroll, { passive: true, capture: true });
+			safeAdd(window, "resize", hideTip);
+			// 点击浮窗与“正在操作的模型座”之外的任何位置 → 立即收起。
+			// 注意：旧版回退路径里徽章嵌在按钮内部，点它也会冒泡打开模型下拉，所以点锚点内一律收起。
+			const onDocMouseDown = (ev) => {
+				const target = ev && ev.target;
+				const hot = getHotzone();
+				const anchorEl = getAnchor();
+				const inTip = !!(tip && target && tip.contains && tip.contains(target));
+				if (inTip) return;
+				const inHot = !!(hot && target && (hot === target || (hot.contains && hot.contains(target))));
+				const inSeat = !!(seatAnchorMode && anchorEl && target && (target === anchorEl || (anchorEl.contains && anchorEl.contains(target))));
+				if (inHot && !inSeat) return;
+				hovering = false;
+				showSeq++;
+				if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+				if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+				hideTip();
 			};
+			safeAdd(document, "mousedown", onDocMouseDown, true);
+			// 读取持久化设置（悬停立即刷新 / 自动刷新间隔），并开启自动刷新调度。
+			loadSettings(rpc);
+			// 自调度 setTimeout：每次循环重新读取当前间隔与开关，改设置后无需重启即生效。
+			const scheduleAutoRefresh = () => {
+				const minutes = Math.max(1, QSettings.autoRefreshMin || 5);
+				setTimeout(() => {
+					try {
+						if (QSettings.autoRefreshOn && tip && tip.style.display === "block" && lastBalanceCtx && lastBalanceBox) onRefreshBalance();
+					} catch (e) { console.warn("[provider-badge] 自动刷新失败", e); }
+					scheduleAutoRefresh();
+				}, minutes * 60 * 1000);
+			};
+			scheduleAutoRefresh();
+			return {
+				onEnter,
+				onLeave,
+				hide: () => {
+					hovering = false;
+					showSeq++;
+					if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+					if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+					hideTip();
+				},
+				isVisible: () => !!(tip && tip.style.display === "block"),
+				dispose: () => {
+					if (showTimer) clearTimeout(showTimer);
+					if (hideTimer) clearTimeout(hideTimer);
+					showSeq++;
+					safeRemove(document, "mousedown", onDocMouseDown, true);
+					safeRemove(window, "scroll", onWindowScroll, true);
+					safeRemove(window, "resize", hideTip);
+					if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+					tip = null;
+				}
+			};
+		}
 
+		/**
+		 * 旧版 DSH 回退承载：往模型座按钮内注入 DOM 徽章 + 轮询文本。
+		 * 新版走官方槽位（makeSlotBadge）；仅当槽位不可用（旧版没有该槽）时才走这里。
+		 */
+		function installProviderBadge(sessions, api, rpc) {
+			const SLOT = '[data-slot="conversation.input.model"]';
+			const ATTACH_CHECK_MS = 300;
+			let badge = null;
+			let badgeLabel = null;
+			let seatBtnEl = null;
+			let lastText = null;
+			const controller = createTipController({
+				sessions, api, rpc,
+				seatAnchorMode: true,
+				getAnchor: () => seatBtnEl,
+				getHotzone: () => badge
+			});
+			const onEnter = () => controller.onEnter();
+			const onLeave = (e) => controller.onLeave(e);
+			let boundEl = null;
+			const attachHover = (el) => {
+				if (boundEl === el) return;
+				if (boundEl) {
+					boundEl.removeEventListener("mouseenter", onEnter);
+					boundEl.removeEventListener("mouseleave", onLeave);
+				}
+				boundEl = el;
+				el.addEventListener("mouseenter", onEnter);
+				el.addEventListener("mouseleave", onLeave);
+			};
 			// ---- 徽章 + 悬停挂载 ----
 			const tick = async () => {
 				try {
@@ -841,26 +929,9 @@ window.__ModuleLoader__.load({
 						badgeLabel = document.createElement("span");
 						Object.assign(badgeLabel.style, { position: "relative", pointerEvents: "none" });
 						badge.appendChild(badgeLabel);
-						// 滚动：仅在鼠标不在悬停区（浮窗/徽章标签）时才隐藏，避免浮层错位；
-						// 鼠标停在浮窗/按钮上时（正在查看/点击刷新）滚动不打断。尺寸变化时始终隐藏。
-						window.addEventListener("scroll", () => { if (!hovering) hideTip(); }, { passive: true, capture: true });
-						window.addEventListener("resize", hideTip);
 					}
 					if (badge.parentNode !== seatBtn) seatBtn.insertBefore(badge, seatBtn.firstChild);
-					// 热区 = 徽章小标签，不是整个按钮。
 					attachHover(badge);
-					// 点击模型选择按钮（打开下拉菜单）时立即收起浮窗并取消待触发计时器，
-					// 防止刚悬停过徽章时弹层盖住下拉菜单。
-					if (!seatBtn.__piClickBound) {
-						seatBtn.__piClickBound = true;
-						seatBtn.addEventListener("click", () => {
-							hovering = false;
-							showSeq++; // 作废在途的 showTip
-							if (showTimer) { clearTimeout(showTimer); showTimer = null; }
-							if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-							hideTip();
-						});
-					}
 					const sessionId = sessions.list.getSnapshot().current;
 					if (typeof sessionId !== "string") return;
 					const { result } = await api.sessions.models({ sessionId });
@@ -868,15 +939,14 @@ window.__ModuleLoader__.load({
 					if (badgeLabel) badgeLabel.textContent = text || ""; else badge.textContent = text || "";
 					if ((text || null) !== lastText) {
 						lastText = text || null;
-						if (!text) noticeOnce();
+						if (!text) noticeDecoratorFailure();
 					}
 				} catch (e) {
 					console.warn("[provider-badge] tick 失败", e);
-					noticeOnce();
+					noticeDecoratorFailure();
 				}
 			};
-			// 徽章存在性轻量看护：React 重挂/会话切换会把外来节点摘掉，之前要等 2s 轮询才补回，
-			// 这里用 300ms 的轻量检查把“悬停完全没反应”的窗口压到最小。
+			// 徽章存在性轻量看护：React 重挂/会话切换会把外来节点摘掉，尽快补回。
 			const ensureBadgeAttached = () => {
 				try {
 					const seatBtn = document.querySelector(SLOT + " button");
@@ -889,19 +959,67 @@ window.__ModuleLoader__.load({
 			// 2s 轮询（最简形态，不耦合 React 生命周期）：刷新徽章文本 + 兜底补挂。
 			setInterval(tick, 2000);
 			tick();
-			// 读取持久化设置（悬停立即刷新 / 自动刷新间隔），并开启自动刷新调度。
-			loadSettings(rpc);
-			// 自调度 setTimeout：每次循环重新读取当前间隔与开关，改设置后无需重启即生效。
-			const scheduleAutoRefresh = () => {
-				const minutes = Math.max(1, QSettings.autoRefreshMin || 5);
-				setTimeout(() => {
-					try {
-						if (QSettings.autoRefreshOn && tip && tip.style.display === "block" && lastBalanceCtx && lastBalanceBox) onRefreshBalance();
-					} catch (e) { console.warn("[provider-badge] 自动刷新失败", e); }
-					scheduleAutoRefresh();
-				}, minutes * 60 * 1000);
+		}
+
+		/**
+		 * 官方槽位承载（推荐）：徽章作为 conversation.input.right 的贡献项 —— 模型座左侧的官方空槽。
+		 * 位置与排列完全交给 DSH（槽位锚点是 display:contents，徽章成为 trailing flex 行里的一项），
+		 * 徽章不再是模型按钮的一部分；文本订阅模型目录 store 变化，浮层复用 createTipController。
+		 */
+		function makeSlotBadge(sessions, api, rpc) {
+			return function ProviderBadge(props) {
+				const sessionId = props && props.sessionId;
+				const hostRef = React.useRef(null);
+				const controllerRef = React.useRef(null);
+				const [text, setText] = React.useState("");
+				React.useEffect(() => {
+					const controller = createTipController({
+						sessions, api, rpc, sessionId,
+						// 锚点优先用模型座（保持“紧贴选择器上方”的观感），取不到时退化为徽章自身。
+						getAnchor: () => document.querySelector('[data-slot="conversation.input.model"] button') || hostRef.current,
+						getHotzone: () => hostRef.current
+					});
+					controllerRef.current = controller;
+					return () => { controllerRef.current = null; controller.dispose(); };
+				}, []);
+				React.useEffect(() => {
+					let alive = true;
+					const currentId = () => (typeof sessionId === "string" ? sessionId : sessions.list.getSnapshot().current);
+					const read = async () => {
+						const id = currentId();
+						if (typeof id !== "string") return;
+						try {
+							const { result } = await api.sessions.models({ sessionId: id });
+							if (!alive) return;
+							setText(result && result.ok ? (labelFor(result.value) || "") : "");
+						} catch (e) { /* 读取失败保持现状，避免文本抖动 */ }
+					};
+					read();
+					// 目录 store 变化即刷新（比轮询即时）；旧版数据源没有 subscribe 时退回 2s 轮询。
+					let unsubscribe = null;
+					try { if (api.subscribe) unsubscribe = api.subscribe(currentId(), read); } catch (e) { unsubscribe = null; }
+					const timer = unsubscribe ? null : setInterval(read, 2000);
+					return () => { alive = false; if (unsubscribe) unsubscribe(); if (timer) clearInterval(timer); };
+				}, [sessionId]);
+				if (!text) return null;
+				return React.createElement("span", {
+					ref: hostRef,
+					"data-provider-badge": "",
+					title: text,
+					style: {
+						display: "inline-flex", alignItems: "center", flex: "none",
+						padding: "1px 6px", minHeight: "18px", borderRadius: 999, fontSize: 10, lineHeight: "14px",
+						color: "var(--dsw-alias-label-tertiary)",
+						background: "var(--dsw-alias-bg-layer-3)",
+						border: "1px solid var(--dsw-alias-border-l2)",
+						fontWeight: 400, letterSpacing: ".01em",
+						whiteSpace: "nowrap", maxWidth: "140px", overflow: "hidden", textOverflow: "ellipsis",
+						cursor: "default"
+					},
+					onMouseEnter: () => { if (controllerRef.current) controllerRef.current.onEnter(); },
+					onMouseLeave: (e) => { if (controllerRef.current) controllerRef.current.onLeave(e); }
+				}, text);
 			};
-			scheduleAutoRefresh();
 		}
 		//#endregion
 
@@ -1146,6 +1264,19 @@ window.__ModuleLoader__.load({
 							return { result: null };
 						}
 					}
+				},
+				/**
+				 * 订阅该会话的模型目录变化（切模型/换提供商即时回调），供槽位徽章替代轮询。
+				 * @returns 退订函数；目录尚未就绪时返回 null（调用方退回轮询）。
+				 */
+				subscribe: (sessionId, cb) => {
+					if (typeof sessionId !== "string") return null;
+					try {
+						const directory = dirs.directoryFor(sessionId);
+						return directory.store.subscribe(() => { try { cb(); } catch (e) { console.warn("[provider-badge] 订阅回调失败", e); } });
+					} catch (e) {
+						return null;
+					}
 				}
 			};
 		}
@@ -1176,18 +1307,45 @@ window.__ModuleLoader__.load({
 				//  - 新版 DSH（0.1.2+，connection.api 已移除）→ 等 modelDirectories / remote 服务
 				//    就绪后，用门面把目录 store + remote.settings.describe 适配回相同形状。
 				const legacyApi = scoped.connection && scoped.connection.api;
-				const installBadge = (api) => {
+				// 徽章承载：优先官方槽位 conversation.input.right（模型座左侧的官方空槽，结构上与选择器分离）；
+				// 若槽位在 1.2s 内仍未就绪（旧版 DSH 没有该槽），回退到“往模型座按钮内注入 DOM”。
+				const FALLBACK_AFTER_MS = 1200;
+				const mountBadge = (dataApi) => {
+					let mounted = false;
+					let fallbackTimer = null;
+					const installFallback = () => {
+						if (mounted) return;
+						try { installProviderBadge(sessions, dataApi, quotaShared.rpc); }
+						catch (e) { console.warn("[provider-badge] 安装失败", e); noticeDecoratorFailure(); }
+					};
 					try {
-						installProviderBadge(sessions, api, quotaShared.rpc);
+						if (slots && slots.inject && slots.register) {
+							slots.inject("conversation.input.right", () => {
+								try {
+									slots.register({
+										name: "conversation.input.right",
+										id: "provider-info",
+										order: 15,
+										locale: LOCALE_NS,
+										inject: (sessionId) => ({ sessionId })
+									}, makeSlotBadge(sessions, dataApi, quotaShared.rpc));
+									mounted = true;
+									if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+								} catch (e) {
+									console.warn("[provider-badge] 注册官方槽位失败", e);
+								}
+							});
+						}
 					} catch (e) {
-						console.warn("[provider-badge] 安装失败", e);
+						console.warn("[provider-badge] 槽位不可用", e);
 					}
+					fallbackTimer = setTimeout(() => { fallbackTimer = null; installFallback(); }, FALLBACK_AFTER_MS);
 				};
 				if (legacyApi) {
-					installBadge(legacyApi);
+					mountBadge(legacyApi);
 				} else {
 					ctx.inject(["modelDirectories", "remote", "remote.settings"], (scoped2) => {
-						installBadge(createModernDataFacade(scoped2.modelDirectories, scoped2.remote));
+						mountBadge(createModernDataFacade(scoped2.modelDirectories, scoped2.remote));
 					});
 				}
 				if (slots && slots.inject) {

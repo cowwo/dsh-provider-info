@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-10
+
+### Changed
+- **徽章承载方式改为官方槽位 `conversation.input.right`**（模型座左侧的官方空槽）：标签由 DSH 布局系统排列，与模型选择器是**兄弟关系**，不再是塞进原生 `<button>` 里的外来节点。由此去掉：按钮语义/点击污染、React 重挂导致的徽章丢失、300ms 存在性看护轮询、以及“移到按钮本体”的特判。
+- 徽章文本改为**订阅模型目录 store**（切模型/换提供商即时更新），仅旧版数据源退回 2s 轮询。
+- 浮层逻辑抽成共享控制器 `createTipController`（渐进渲染 + 代际取消 + 唤起/收起延迟 + 点击外部收起），两种承载方式（官方槽位 / DOM 注入）共用，行为一致。
+- 点击浮层与徽章之外的位置（如模型座）立即收起；浮层卸载时自动清理 DOM。
+
+### Added
+- 旧版 DSH（没有该槽位）自动回退到原有 DOM 注入：槽位 1.2s 内未就绪即回退，读取失败/槽位注册失败也会回退并给出「provider 装饰失效」显式提示。
+
 ## [0.7.7] - 2026-09-09
 
 ### Fixed
