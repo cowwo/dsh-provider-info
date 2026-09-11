@@ -1096,8 +1096,11 @@ window.__ModuleLoader__.load({
 			const [min, setMin] = React.useState(String(QSettings.autoRefreshMin));
 			const [fontSize, setFontSize] = React.useState(QSettings.fontSize || "middle");
 			const [language, setLanguage] = React.useState(QSettings.language || "system");
-			const [busy, setBusy] = React.useState(false);
+			// 即时保存：不再有「保存」按钮，改动即持久化。
+			// status 为 null | "saved" | "failed"；成功提示自动消失，失败常驻。
 			const [status, setStatus] = React.useState(null);
+			const statusTimer = React.useRef(null);
+			React.useEffect(() => () => { if (statusTimer.current) clearTimeout(statusTimer.current); }, []);
 			// ---- 余量表状态 ----
 			const [providers, setProviders] = React.useState([]);       // [{provider, displayName, baseURL, apiKeyEnv}]
 			const [quotaRow, setQuotaRow] = React.useState({});        // provider -> { result }（balance 归一前原始）
@@ -1165,16 +1168,24 @@ window.__ModuleLoader__.load({
 					setRefreshAllBusy(false);
 				}
 			};
-			const save = () => {
+			// 即时保存：只提交变更字段（host 侧 `set` 是 `{...已存, ...patch}` 合并语义，
+			// 因此不会覆盖别处的改动）。成功提示 1.8s 后自动消失；失败常驻
+			// （遵循本插件的 ADR-0001：显式失败，不静默）。
+			const persist = (patch) => {
+				saveSettings(rpc, patch).then((ok) => {
+					setStatus(ok ? "saved" : "failed");
+					if (statusTimer.current) { clearTimeout(statusTimer.current); statusTimer.current = null; }
+					if (ok) statusTimer.current = setTimeout(() => setStatus(null), 1800);
+				});
+			};
+			// 「定时刷新间隔」是数字输入框：**失焦 / 回车**时才提交。
+			// 逐击键保存会把 "12" 先存成 1（并可能触发一次真实的定时刷新周期），故不即时提交。
+			const commitMin = () => {
 				let m = Number(min);
 				if (!Number.isFinite(m) || m < 1) m = 5;
 				m = Math.round(m);
-				setMin(String(m));
-				setBusy(true); setStatus(null);
-				saveSettings(rpc, { hoverRefresh: !!hoverRefresh, autoRefreshOn: !!autoRefreshOn, autoRefreshMin: m, fontSize, language }).then((ok) => {
-					setBusy(false);
-					setStatus(ok ? tx("settings.saved") : tx("settings.saveFailed"));
-				});
+				if (String(m) !== min) setMin(String(m));
+				if (m !== QSettings.autoRefreshMin) persist({ autoRefreshMin: m });
 			};
 			// 表头单元格样式辅助（含竖线分隔）。
 			const th = (text, opt) => React.createElement("th", {
@@ -1186,20 +1197,31 @@ window.__ModuleLoader__.load({
 				}
 			}, text);
 			return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14, maxWidth: 720 } },
-				React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-					React.createElement("h2", { style: { margin: 0, fontSize: 17, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, tx("settings.title")),
-					React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.subtitle"))
+				React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 } },
+					React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+						React.createElement("h2", { style: { margin: 0, fontSize: 17, fontWeight: 600, color: "var(--dsw-alias-label-primary)" } }, tx("settings.title")),
+						React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.subtitle"))
+					),
+					// 即时保存的状态：改动即写入，这里只给反馈（成功短暂、失败常驻）。
+					status
+						? React.createElement("span", {
+							style: {
+								flex: "none", marginTop: 3, fontSize: 12, whiteSpace: "nowrap",
+								color: status === "saved" ? "var(--dsw-alias-state-success-primary)" : "var(--dsw-alias-state-error-primary)"
+							}
+						}, status === "saved" ? tx("settings.saved") : tx("settings.saveFailed"))
+						: null
 				),
 				React.createElement("div", { style: { ...styleBase, display: "flex", flexDirection: "column", gap: 12 } },
 					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
-						React.createElement("input", { type: "checkbox", checked: hoverRefresh, onChange: (e) => setHoverRefresh(e.target.checked) }),
+						React.createElement("input", { type: "checkbox", checked: hoverRefresh, onChange: (e) => { const v = e.target.checked; setHoverRefresh(v); persist({ hoverRefresh: v }); } }),
 						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
 							React.createElement("span", null, tx("settings.hoverRefresh")),
 							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.hoverRefreshDesc"))
 						)
 					),
 					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
-						React.createElement("input", { type: "checkbox", checked: autoRefreshOn, onChange: (e) => setAutoRefreshOn(e.target.checked) }),
+						React.createElement("input", { type: "checkbox", checked: autoRefreshOn, onChange: (e) => { const v = e.target.checked; setAutoRefreshOn(v); persist({ autoRefreshOn: v }); } }),
 						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
 							React.createElement("span", null, tx("settings.autoRefresh")),
 							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.autoRefreshDesc"))
@@ -1207,13 +1229,13 @@ window.__ModuleLoader__.load({
 					),
 					React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, opacity: autoRefreshOn ? 1 : 0.5 } },
 						React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, tx("settings.interval")),
-						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none", opacity: autoRefreshOn ? 1 : 0.55 } }),
+						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), onBlur: commitMin, onKeyDown: (e) => { if (e.key === "Enter") { e.preventDefault(); commitMin(); } }, style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none", opacity: autoRefreshOn ? 1 : 0.55 } }),
 						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)", opacity: autoRefreshOn ? 1 : 0.6 } }, tx("settings.intervalMin"))
 					)
 				),
 				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
 					React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, tx("settings.fontSize")),
-					React.createElement("select", { value: fontSize, onChange: (e) => setFontSize(e.target.value), style: { padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } },
+					React.createElement("select", { value: fontSize, onChange: (e) => { const v = e.target.value; setFontSize(v); persist({ fontSize: v }); }, style: { padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } },
 						React.createElement("option", { value: "small" }, tx("settings.fontSmall")),
 						React.createElement("option", { value: "middle" }, tx("settings.fontMiddle")),
 						React.createElement("option", { value: "large" }, tx("settings.fontLarge"))
@@ -1221,7 +1243,7 @@ window.__ModuleLoader__.load({
 				),
 				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
 					React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, tx("settings.language")),
-					React.createElement("select", { value: language, onChange: (e) => setLanguage(e.target.value), style: { padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } },
+					React.createElement("select", { value: language, onChange: (e) => { const v = e.target.value; setLanguage(v); persist({ language: v }); }, style: { padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none" } },
 						React.createElement("option", { value: "system" }, tx("settings.langSystem")),
 						React.createElement("option", { value: "en" }, tx("settings.langEn")),
 						React.createElement("option", { value: "zh" }, tx("settings.langZh"))
@@ -1277,10 +1299,6 @@ window.__ModuleLoader__.load({
 					providers.length > 0 && hiddenCount > 0
 						? React.createElement("button", { type: "button", onClick: () => setShowAllQuota((v) => !v), style: { alignSelf: "flex-start", padding: "3px 10px", fontSize: 12, cursor: "pointer", background: "transparent", color: "var(--dsw-alias-label-secondary)", border: "1px dashed var(--dsw-alias-border-l2)", borderRadius: 6 } }, showAllQuota ? tx("quota.collapse") : (tx("quota.expandAll") + "（" + hiddenCount + "）"))
 						: null
-				),
-				React.createElement("div", { style: { position: "sticky", bottom: 0, display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", marginTop: 2, background: "var(--dsw-alias-bg-base)", borderTop: "1px solid var(--dsw-alias-border-l2)", boxShadow: "0 -8px 16px -12px rgba(0,0,0,0.5)", zIndex: 2 } },
-					React.createElement("button", { type: "button", onClick: save, disabled: busy, style: { background: "var(--dsw-alias-label-primary)", color: "var(--dsw-alias-bg-layer-3)", border: "none", borderRadius: 8, padding: "6px 16px", fontSize: 13, cursor: "pointer", fontWeight: 500, opacity: busy ? 0.5 : 1 } }, busy ? tx("settings.saving") : tx("settings.save")),
-					status ? React.createElement("span", { style: { fontSize: 13, color: status === "已保存" ? "var(--dsw-alias-state-success-primary)" : "var(--dsw-alias-state-error-primary)" } }, status) : null
 				)
 			);
 		}

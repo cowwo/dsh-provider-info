@@ -89,6 +89,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- 设置页改为**即时保存**，移除底部「保存」按钮与吸底栏 —— 与 DSH 自身的设置页一致（它们没有保存按钮，改动即生效）。
+  - 复选框与下拉框（悬浮窗自动刷新、定时刷新、字体大小、界面语言）改动即写入。
+  - 「定时刷新间隔」是数字输入框，**失焦或回车**时才提交：逐击键保存会把 `12` 先存成 `1` 并可能触发一次真实的定时刷新周期。提交时做钳位（`<1`/非数字 → `5`，四舍五入）。
+  - 只提交变更字段（host 侧 `set` 是 `{...已存, ...patch}` 合并语义）；值未变化时不发请求。
+  - 保存反馈移到标题行右侧：成功提示 1.8s 后自动消失，失败常驻（遵循 ADR-0001：显式失败，不静默）。
+  - 移除原因：原吸底栏用 `position: sticky`，而设置面板是固定高度（`min(800px, 100vh - 48px)`）、滚动容器为该面板内的 `.options`。内容不足一屏时 sticky 不生效，该栏会以「带顶边框 + 阴影的白条」形态悬在面板中部；且其背景用 `bg-base` 而面板是 `bg-layer-2`，深色模式下会多出一条偏暗色带。
+
+### Fixed
+- 「全部提供商余量」表格只列**已启用的提供商**，不再混入 pi-ai 内置目录里的未配置项。
+  - 根因：`providers()` 原先直接枚举 `ctx.llm.listConfigurableProviders()`，而该目录被 `dsh-llm-pi-ai` 用 pi-ai 的**全部内置 provider**（39 个，如 `kimi-coding` / `minimax` / `zai` / `opencode` 等）填充过，于是本机从未配置的内置项也进了表格（显示为「暂不支持查询当前提供商」/「未配置 API Key」）。
+  - 同时它导致内置的 `deepseek` 与官方路由 `deepseek-official` 重复成两行 —— 两者键不同因而不会被去重，却命中同一家族、用同一密钥查同一账户，所以两行余额完全相同。
+  - 改为以 `ctx.llm.listProviders()`（llm 适配器表里的**已注册路由**，与「设置 → 模型」页同源）为准，再 join `listConfigurableProviders()` 目录取 `settingsNs` / `settingsPath`、下钻 settings 补 `baseURL` / `apiKeyEnv`；展示名优先取适配器声明的 `name`。
+  - `listProviders()` 不可用时仍退回旧逻辑枚举（保留降级路径）。
+
 ### Added
 - 「提供商信息」设置页新增「全部提供商余量」表格：汇总所有可查询余额/限额的提供商，表头为 `提供商 | 5小时 | 7天 | 30天 | 余额 | 操作`，无数据的维度留空；支持单行刷新与全部刷新；复用悬浮窗查询结果（模块级共享缓存 + host 5 分钟缓存），provider 数量多时表格横向溢出自动滚动。
 - 服务端 `providerBadge/providers` 端点：合并「自定义提供方」（`llm-pi-ai.providers`）与「官方/内置提供方」（`ctx.llm.listConfigurableProviders()`，如 DeepSeek 官方），逐项解析 baseURL/apiKeyEnv，使「模型」面板里的官方提供方也进入余量表。
