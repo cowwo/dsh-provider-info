@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-09-11
+
+### Added
+- 新增设置项 **「显示更多信息」（默认关闭）**：关闭时余量只显示**比例数字**与**到期日期**，开启后才显示金额（已用/总额）、浮层的重置倒计时、到期的剩余天数。
+  - 浮层与设置页表格按同一个开关渲染（同一个 `QSettings.showMore`），因此两处永远同步。
+  - 「余额」行/列与「已限流」标记**不受影响**：前者是余额型唯一的信息（没有"更少"可退），后者是状态警告而非附加信息。
+
+### Changed
+- `windowValue` / `periodValue` 增加 `more` 选项（默认关），金额与倒计时、剩余天数都归到它下面。
+- host 侧 `settings` 的严格 schema（`settingsSchema` / `settingsRequestSchema.patch`）与模型签名同步新增 `showMore`——zod 的对象默认**剥离未知键**，漏写不会报错，只会变成"勾选框翻动、请求成功、但什么都没存"的静默失效，所以这一处必须同步。
+- 顺手补齐模型签名里漏声明的 `fontSize` / `language` 字段（schema 里本来就有，签名没写全）。
+
+## [0.10.0] - 2026-09-11
+
+### Changed
+- **余量信息统一成一个模型：host 只吐一种结构，渲染端不再按厂商分支**（见 ADR-0002）。
+  - host 返回三组**可选**数据，缺失维度恒为 `null`：`windows[]`（套餐窗口：`key` / `durationHours` / `percent` / `used` / `total` / `currency` / `resetsAt` / `rateLimited`）、`balance`（余额型：`isAvailable` + `items[{currency,total}]`）、`period`（订阅到期：`end` / `daysLeft`）。
+  - 所有返回——查得数据、暂不支持、未配置密钥、查询失败——形状完全一致，因此客户端只剩**一套**渲染逻辑：有窗口画窗口行、有余额画余额行、有到期画到期行。`kind` 字段、`family === "commandcode"`、`b.monthly` 这类判断全部移除。
+  - 删除永远为空的字段与死文案：payload 的 `membership`（从未被写入）、`windows[].status` / `windows[].kind` / `monthly.plan`（从未被读取）、家族识别表里的 `kind` 声明，以及 i18n 的 `monthlyQuota` / `noSupport` / `settings.save` / `settings.saving`（共 0 处调用）。
+- **窗口标签改为周期名，且浮层与设置页共用同一套**：中文 `5小时 / 周 / 月`，英文 `5h / wk / mo`（此前浮层用紧凑的 `5h / 7d / 30d`、表格用 `5小时 / 7天 / 30天`，两套并存）。
+  - 标签由厂商/适配器声明的窗口时长（`durationHours`）决定：常见档位用周期名，非 5小时/周/月 的窗口按真实时长显示（如 `5天` / `5d`），渲染端不需要改代码。
+  - 设置页表格的窗口列改为「当前可见行的窗口并集、按真实时长升序」，厂商换窗口时长会自动增减列。
+- **设置页表格列改为 `提供商 | 5小时 | 周 | 月 | 余额 | 到期 | 操作`**，谁有数据填谁，没有的留空。
+  - 「余额」列只服务余额型（DeepSeek）；套餐型的钱显示在各自窗口格里（`已用%（已用$/总额$）`）。修掉了原先的错位：同一份 Command Code 月度数据在浮层里是 `30d` 行、在表格里却进了「余额」列。
+  - Command Code 的月度池归一到 `monthly` 窗口，与 OpenCode Go 的月窗同槽位，因此月度数据在两处都落在「月」的位置。
+  - 「到期」独立成列与独立一行，只由厂商提供的订阅计费周期决定：Command Code 有（`currentPeriodEnd`）；OpenCode Go 没有——实测 `/v1/usage` 只返回 `rolling / weekly / monthly` 的 `status / percent / resetsAt`，无订阅字段（`/v1/subscription`、`/v1/me`、`/v1/billing`、`/v1/plan` 均 404），故留空。
+  - 查不了/出错的厂商，状态文案跟在**提供商名称后面**，不再写进「余额」列（避免被读成「这家的余额不支持」）。
+- 「月」行不再重复显示与「到期」相同的倒计时（Command Code 月度池的周期终点就是订阅到期时间）；OpenCode Go 的「月」行仍显示自己的月窗重置倒计时。
+- 多币种分隔符两处统一为 ` / `（原先浮层用 ` · `、表格用 ` / `）；余额按币种字母升序稳定显示（DeepSeek 接口的币种顺序不稳定）。
+- 设置页「全部提供商余量」表格的窗口列名与浮层行名现在来自同一套 i18n 键（`quota.win.*`）。
+
+### Breaking
+- `providerBadge/balance` 的结果结构变更（本插件内部 RPC）：`lib/typert.host.js` 的严格 schema 与模型签名已同步更新。客户端与服务端同包同次加载，不存在新旧版本混跑；刷新页面即可。
+
 ## [0.9.0] - 2026-09-10
 
 ### Changed

@@ -27,12 +27,10 @@ window.__ModuleLoader__.load({
 			"compatInfo": "兼容信息",
 			"balance": "余量",
 			"balanceName": "余额",
-			"monthlyQuota": "月度额度",
 			"refresh": "刷新",
 			"refreshing": "刷新中…",
 			"unknown": "未提供",
 			"window": "窗口",
-			"noSupport": "暂不支持该供应商查询",
 			"noSupportProvider": "当前暂不支持查询当前提供商",
 			"expiresOn": "到期",
 			"daysUnit": "天",
@@ -55,6 +53,8 @@ window.__ModuleLoader__.load({
 			"settings.autoRefresh": "定时刷新",
 			"settings.autoRefreshDesc": "浮窗打开时按设定间隔定时重新查询余量",
 			"settings.interval": "定时刷新间隔(分钟)",
+			"settings.moreInfo": "显示更多信息",
+			"settings.moreInfoDesc": "开启后窗口额外显示金额（已用/总额）、浮层显示重置倒计时，到期显示剩余天数",
 			"settings.intervalMin": "（最低 1）",
 			"settings.fontSize": "字体大小",
 			"settings.fontSmall": "小",
@@ -64,23 +64,18 @@ window.__ModuleLoader__.load({
 			"settings.langSystem": "跟随系统(dsh)",
 			"settings.langEn": "English",
 			"settings.langZh": "中文",
-			"settings.saving": "保存中…",
-			"settings.save": "保存",
 			"settings.saved": "已保存",
 			"settings.saveFailed": "保存失败",
 			// 余量表
 			"quota.title": "全部提供商余量",
 			"quota.subtitle": "汇总所有已配置提供商的余额/限额，复用悬浮窗查询结果",
 			"quota.col.provider": "提供商",
-			"quota.col.rolling": "5小时",
-			"quota.col.weekly": "7天",
-			"quota.col.monthly": "30天",
 			"quota.col.balance": "余额",
 			"quota.col.action": "操作",
-			// 悬浮浮层专用的紧凑窗口标签（与设置页表格表头分开，见 quota.col.*）。
-			"quota.win.rolling": "5h",
-			"quota.win.weekly": "7d",
-			"quota.win.monthly": "30d",
+			// 窗口标签：浮层与设置页表格共用同一套（对齐要求，不再分紧凑/长两套）。
+			"quota.win.rolling": "5小时",
+			"quota.win.weekly": "周",
+			"quota.win.monthly": "月",
 			"quota.refreshAll": "全部刷新",
 			"quota.refreshAllBusy": "刷新中…",
 			"quota.empty": "暂无提供商配置",
@@ -107,12 +102,10 @@ window.__ModuleLoader__.load({
 			"compatInfo": "Compat info",
 			"balance": "Balance",
 			"balanceName": "Balance",
-			"monthlyQuota": "Monthly quota",
 			"refresh": "Refresh",
 			"refreshing": "Refreshing…",
 			"unknown": "Not provided",
 			"window": "Window",
-			"noSupport": "Queries not supported for this provider",
 			"noSupportProvider": "Queries are not supported for this provider yet",
 			"expiresOn": "Expires",
 			"daysUnit": "d",
@@ -135,6 +128,8 @@ window.__ModuleLoader__.load({
 			"settings.autoRefresh": "Scheduled refresh",
 			"settings.autoRefreshDesc": "Re-query the balance at the set interval while the box is open",
 			"settings.interval": "Refresh interval (minutes)",
+			"settings.moreInfo": "Show more details",
+			"settings.moreInfoDesc": "When on, windows also show amounts (used/total), the hover panel shows reset countdowns, and expiry shows days left",
 			"settings.intervalMin": "(min 1)",
 			"settings.fontSize": "Font size",
 			"settings.fontSmall": "Small",
@@ -144,23 +139,18 @@ window.__ModuleLoader__.load({
 			"settings.langSystem": "Follow system (dsh)",
 			"settings.langEn": "English",
 			"settings.langZh": "Chinese",
-			"settings.saving": "Saving…",
-			"settings.save": "Save",
 			"settings.saved": "Saved",
 			"settings.saveFailed": "Save failed",
 			// 余量表
 			"quota.title": "All provider quotas",
 			"quota.subtitle": "Summarize balance/limits of all configured providers, reusing hover query results",
 			"quota.col.provider": "Provider",
-			"quota.col.rolling": "5h",
-			"quota.col.weekly": "7d",
-			"quota.col.monthly": "30d",
 			"quota.col.balance": "Balance",
 			"quota.col.action": "Action",
-			// Compact window labels for the hover popover (separate from the settings table's quota.col.*).
+			// Window labels: shared by the hover popover and the settings table.
 			"quota.win.rolling": "5h",
-			"quota.win.weekly": "7d",
-			"quota.win.monthly": "30d",
+			"quota.win.weekly": "wk",
+			"quota.win.monthly": "mo",
 			"quota.refreshAll": "Refresh all",
 			"quota.refreshAllBusy": "Refreshing…",
 			"quota.empty": "No providers configured",
@@ -178,7 +168,7 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---- 插件设置（持久化于 host 侧 json 文件）----
-		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5, fontSize: 'middle', language: 'system' };
+		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5, showMore: false, fontSize: 'middle', language: 'system' };
 		function loadSettings(rpc) {
 			try {
 				rpc.call("/api", "providerBadge/settings", { args: { request: { op: "get" } } }).then((resp) => {
@@ -187,6 +177,7 @@ window.__ModuleLoader__.load({
 						if (typeof s.hoverRefresh === "boolean") QSettings.hoverRefresh = s.hoverRefresh;
 						if (typeof s.autoRefreshOn === "boolean") QSettings.autoRefreshOn = s.autoRefreshOn;
 						if (typeof s.autoRefreshMin === "number") QSettings.autoRefreshMin = s.autoRefreshMin;
+						if (typeof s.showMore === "boolean") QSettings.showMore = s.showMore;
 						if (s.fontSize === "large" || s.fontSize === "middle" || s.fontSize === "small") QSettings.fontSize = s.fontSize;
 						if (s.language === "system" || s.language === "en" || s.language === "zh") QSettings.language = s.language;
 					}
@@ -200,6 +191,7 @@ window.__ModuleLoader__.load({
 					QSettings.hoverRefresh = !!s.hoverRefresh;
 					QSettings.autoRefreshOn = !!s.autoRefreshOn;
 					QSettings.autoRefreshMin = Number(s.autoRefreshMin) || 5;
+					QSettings.showMore = !!s.showMore;
 					if (s.fontSize === "large" || s.fontSize === "middle" || s.fontSize === "small") QSettings.fontSize = s.fontSize;
 					if (s.language === "system" || s.language === "en" || s.language === "zh") QSettings.language = s.language;
 					return true;
@@ -272,48 +264,94 @@ window.__ModuleLoader__.load({
 			quotaInflight.set(inflightKey, task);
 			return task;
 		}
-		// ---- 余量结果 → 表格单元格归一化（供设置页表格使用，自包含不依赖悬浮闭包）----
+		//#region 余量数据 → 统一文案（浮层与设置页表格共用同一套，保证两处永远同字同序）
+		// host 返回统一结构：windows（套餐窗口）/ balance（余额）/ period（订阅到期）。
+		// 渲染端只按「有哪些维度」渲染，不认识任何厂商名（见 ADR-0002）。
 		const _num2 = (n) => { var v = Number(n); return v === v ? v.toFixed(2) : ""; };
-		const _pct = (n) => { var v = Number(n); return v === v ? v.toFixed(2) + "%" : ""; };
 		const _sym = (code) => code === "CNY" ? "¥" : code === "USD" ? "$" : code === "EUR" ? "€" : (code || "") + " ";
-		/** 把 balance 结果归一化成表格五列要显示的纯文本；无数据的维度返回空串。 */
-		function quotaCells(b) {
-			const cells = { rolling: "", weekly: "", monthly: "", balance: "" };
-			if (!b) return cells;
-			// 未识别：不展示任何数据（表格保留空行）。
-			if (b.recognized === false) return cells;
-			// 已识别但不支持查询 / 出错：只在「余额」列给出状态文案。
-			if (!b.supported || b.error) {
-				cells.balance = quotaErrorText(b);
-				return cells;
+		/** 金额：币种符号 + 两位小数；无值返回空串。 */
+		const moneyText = (currency, n) => {
+			var v = Number(n);
+			return (n === null || n === undefined || v !== v) ? "" : _sym(currency) + _num2(v);
+		};
+		/** 百分比：两位小数。 */
+		const pctText = (n) => { var v = Number(n); return v === v ? v.toFixed(2) + "%" : ""; };
+		/** 通用时长标签：厂商声明了非 5小时/周/月 的窗口时用它（如 5天 / 5d）。 */
+		const durationLabel = (hours) => {
+			var h = Number(hours);
+			if (!(h > 0)) return null;
+			var en2 = resolveLang() === "en";
+			return h < 24 ? Math.round(h) + (en2 ? "h" : "小时") : Math.round(h / 24) + (en2 ? "d" : "天");
+		};
+		/** 窗口标签：常见档位走 i18n 周期名（5小时/周/月），否则按真实时长显示。 */
+		const windowLabel = (w) => {
+			var key = w && w.key;
+			if (key) {
+				var k = tx("quota.win." + key);
+				if (k !== "quota.win." + key) return k;
 			}
-			// balance 家族（DeepSeek）：余额列放金额。
-			if (b.kind === "balance" && b.family === "deepseek") {
-				const infos = ((b.balance && b.balance.balance_infos) || []).slice()
-					.sort((a, c) => String(a.currency || "").localeCompare(String(c.currency || "")));
-				const parts = infos.map((i) => _sym(i.currency) + _num2(i.total_balance));
-				cells.balance = parts.length ? parts.join(" / ") : "";
-				return cells;
+			return durationLabel(w && w.durationHours) || key || tx("window");
+		};
+		/** 窗口排序：按真实时长升序（5小时 → 周 → 月），缺失时长的排最后。 */
+		const sortedWindows = (b) => ((b && b.windows) || []).slice().sort((a, c) => {
+			var ha = a && a.durationHours != null ? a.durationHours : Infinity;
+			var hc = c && c.durationHours != null ? c.durationHours : Infinity;
+			return ha - hc;
+		});
+		/** 窗口重置倒计时（天/时/分）。 */
+		const countdownStr = (resetsAt) => {
+			if (!resetsAt) return null;
+			var t = Date.parse(resetsAt);
+			if (t !== t) return null;
+			var diffMs = t - Date.now();
+			if (diffMs <= 0) return null;
+			var hours = Math.floor(diffMs / 3600000);
+			var minutes = Math.floor((diffMs % 3600000) / 60000);
+			if (hours > 24) return Math.floor(hours / 24) + "d" + (hours % 24) + "h";
+			if (hours > 0) return hours + "h" + minutes + "m";
+			return minutes + "m";
+		};
+		/**
+		 * 一个窗口的展示值：已用%（已用 $/总额 $）[ 已限流][ · 倒计时]。
+		 * 金额与倒计时属于「更多信息」（`opts.more`，默认关）；关掉后只剩比例数字。
+		 * 倒计时与「到期」是同一时刻时不再重复显示（月度池的周期终点就是订阅到期）。
+		 */
+		const windowValue = (w, opts) => {
+			if (!w) return "";
+			var more = !!(opts && opts.more);
+			var out = pctText(w.percent);
+			if (more && out && w.used != null && w.total != null) {
+				out += "（" + moneyText(w.currency, w.used) + "/" + moneyText(w.currency, w.total) + "）";
 			}
-			// limits 家族（OpenCode Go / Command Code / 其它 percent 型）：三窗口各放百分比。
-			if (b.kind === "limits") {
-				const wins = b.windows || [];
-				for (const w of wins) {
-					const k = w.key;
-					const pct = (w.percent !== null && w.percent !== undefined) ? _pct(w.percent) : "";
-					if (k === "rolling" || k === "5小时") cells.rolling = pct;
-					else if (k === "weekly" || k === "7天") cells.weekly = pct;
-					else if (k === "monthly" || k === "30天") cells.monthly = pct;
+			if (w.rateLimited) out += " " + tx("rateLimited");
+			if (more && opts && opts.countdown && w.resetsAt) {
+				var dup = opts.period && opts.period.end && Date.parse(opts.period.end) === Date.parse(w.resetsAt);
+				if (!dup) {
+					var cd = countdownStr(w.resetsAt);
+					if (cd) out += " · " + cd;
 				}
-				// Command Code：月度剩余 credits 放进「余额」列（无查询窗口时表格仍有数据可见）。
-				if (b.family === "commandcode" && b.monthly && b.monthly.remaining != null) {
-					const mCur = b.monthly.currency === "USD" ? "$" : (b.monthly.currency || "") + " ";
-					cells.balance = mCur + _num2(b.monthly.remaining) + (b.monthly.total != null ? " / " + mCur + _num2(b.monthly.total) : "");
-				}
 			}
-			return cells;
-		}
-		/** 余量错误/不支持状态 → 文案（复用 tx 词条，与悬浮窗一致）。 */
+			return out || tx("noData");
+		};
+		/** 余额（余额型）：按币种字母升序稳定显示（DeepSeek 接口的币种顺序不稳定），多币种用 " / " 连接。 */
+		const balanceValue = (bal) => {
+			var items = ((bal && bal.items) || []).slice()
+				.sort((a, c) => String(a && a.currency || "").localeCompare(String(c && c.currency || "")));
+			var parts = items.filter((i) => i && i.total != null).map((i) => moneyText(i.currency, i.total)).filter(Boolean);
+			if (!parts.length) return "";
+			return parts.join(" / ") + (bal.isAvailable === false ? tx("insufficient") : "");
+		};
+		/** 到期（订阅计费周期结束）：`2026-10-08`；「剩 28 天」属于「更多信息」（`opts.more`，默认关）。 */
+		const periodValue = (p, opts) => {
+			if (!p || !p.end) return "";
+			var d = new Date(p.end);
+			if (d.getTime() !== d.getTime()) return "";
+			var pad2 = (n) => String(n).padStart(2, "0");
+			var out = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+			if (opts && opts.more && p.daysLeft != null && p.daysLeft >= 0) out += " · " + tx("leftDays") + " " + p.daysLeft + tx("daysUnit");
+			return out;
+		};
+		/** 出错 / 暂不支持 → 文案（浮层与表格同一句话）。 */
 		function quotaErrorText(b) {
 			if (!b) return "";
 			// 未识别厂商 / 已识别但暂不支持查询 → 统一提示「暂不支持查询当前提供商」。
@@ -324,6 +362,18 @@ window.__ModuleLoader__.load({
 			if (b.error === "http-404") return tx("http404");
 			if (b.error === "missing-usage" || b.error === "missing-windows" || b.error === "no-data") return tx("missingUsage");
 			return tx("queryFailed");
+		}
+		/** 该结果是否有可展示的数据（决定设置页表格收起态是否隐藏该行）。 */
+		function hasQuotaData(b) {
+			if (!b) return true;                                   // 尚未查到：先显示，避免闪烁
+			if (b.recognized === false) return false;              // 未识别厂商
+			if (!b.supported || b.error) return true;              // 有明确状态文案
+			return !!(sortedWindows(b).length || balanceValue(b.balance) || periodValue(b.period));
+		}
+		/** 名称后要跟的状态文案（查不了 / 出错时才有）。 */
+		function quotaStatusText(b) {
+			if (!b || (!b.error && b.supported)) return "";
+			return quotaErrorText(b);
 		}
 		//#endregion
 
@@ -512,33 +562,7 @@ window.__ModuleLoader__.load({
 				}
 			};
 
-			// ---- 余量（余额/限额）----
-			const fmtNum2 = (n) => {
-				var v = Number(n);
-				return v === v ? v.toFixed(2) : "—";
-			};
-			const currencySymbol = (code) => {
-				if (code === "CNY") return "¥";
-				if (code === "USD") return "$";
-				if (code === "EUR") return "€";
-				return (code || "") + " ";
-			};
-			const fmtPct = (u) => {
-				var v = Number(u);
-				return v === v ? v.toFixed(2) + "%" : "—";
-			};
-			const countdownStr = (resetsAt) => {
-				if (!resetsAt) return null;
-				var t = Date.parse(resetsAt);
-				if (t !== t) return null;
-				var diffMs = t - Date.now();
-				if (diffMs <= 0) return null;
-				var hours = Math.floor(diffMs / 3600000);
-				var minutes = Math.floor((diffMs % 3600000) / 60000);
-				if (hours > 24) return Math.floor(hours / 24) + "d" + (hours % 24) + "h";
-				if (hours > 0) return hours + "h" + minutes + "m";
-				return minutes + "m";
-			};
+			// ---- 余量（余额 / 套餐窗口 / 到期）----
 			// 识图开启时，`value.current.provider` 会被 DSH 分流成一个合成 provider（如 `ocgo-02-vision`），
 			// 它在 `llm-pi-ai.providers` 里没有配置条目（baseURL 取不到），导致家族识别失败、余量不展示。
 			// 余量识别应始终基于「主模型座选中的主 provider」，而不是识图分流出的 vision provider：
@@ -550,93 +574,27 @@ window.__ModuleLoader__.load({
 			};
 			// 悬浮窗余量查询：直接走模块级共享存储，供设置页复用同一份结果。
 			const resolveBalance = (provider, cfg, force) => fetchProviderQuota(provider, cfg, force);
-			// 余量浮层区块：仅 DeepSeek（余额）与 OpenCode Go（5h/周/月限额）查询，
-			// 已识别但不支持的厂商显示「暂不支持该供应商查询」，未识别的不展示。
+			/**
+			 * 余量浮层区块：按「有哪些维度」渲染 —— 窗口行（5小时 → 周 → 月）→ 余额行 → 到期行。
+			 * 这里不认识任何厂商名；套餐型与充值型的区别只体现在返回了哪些维度（见 ADR-0002）。
+			 * 「显示更多信息」关闭时，窗口只留比例数字、到期只留日期（见 setShowMore）。
+			 */
 			const balanceRows = (b) => {
 				if (!b) return null;
-				// 已识别但暂不支持查询 / 完全未识别的厂商：浮窗照常显示该行，明确告知不支持。
-				if (!b.supported) {
-					return [row(tx("balance"), tx("noSupportProvider"))];
+				// 暂不支持查询 / 出错：一行状态文案。
+				if (!b.supported || b.error) return [row(tx("balance"), quotaErrorText(b))];
+				var more = QSettings.showMore;
+				var out = [];
+				var wins = sortedWindows(b);
+				for (var i = 0; i < wins.length; i++) {
+					var w = wins[i];
+					out.push(row(windowLabel(w), windowValue(w, { more: more, countdown: true, period: b.period })));
 				}
-				// 支持查询但出错：细分错误原因。
-				if (b.error) {
-					var errText = tx("queryFailed");
-					if (b.error === "no-api-key") errText = tx("noApiKey");
-					else if (b.error === "subscription-required") errText = tx("subscriptionRequired");
-					else if (b.error === "unauthorized") errText = tx("unauthorized");
-					else if (b.error === "http-404") errText = tx("http404");
-					else if (b.error === "missing-usage" || b.error === "missing-windows") errText = tx("missingUsage");
-					return [row(tx("balance"), errText)];
-				}
-				// balance 家族（DeepSeek）：余额金额。
-				if (b.kind === "balance" && b.family === "deepseek") {
-					var bal = b.balance;
-					var infos = (bal && bal.balance_infos) || [];
-					// DeepSeek 接口 balance_infos 币种顺序不稳定，按币种字母升序稳定显示（CNY 在 USD 前）。
-					infos = infos.slice().sort((a, b2) => String(a.currency || "").localeCompare(String(b2.currency || "")));
-					var parts = infos.map((i) => currencySymbol(i.currency) + fmtNum2(i.total_balance));
-					var suffix = bal && bal.is_available === false ? tx("insufficient") : "";
-					return [row(tx("balanceName"), parts.length ? parts.join(" · ") + suffix : "—" + suffix)];
-				}
-				// limits 家族（OpenCode Go / Command Code）：各窗口已用百分比 + 重置倒计时。
-				if (b.kind === "limits") {
-					var wins = b.windows || [];
-					// Command Code：月度额度行（30d）的数据先算好，但**延后到最后**再 push ——
-					// 行顺序为「5h → 7d → 30d → 到期」，到期行收尾。
-					var ccMonthly = (b.family === "commandcode" && b.monthly && b.monthly.remaining != null)
-						? b.monthly : null;
-					if (!wins.length && !ccMonthly) return [row(tx("balance"), tx("noData"))];
-					var rows = [];
-					var ccMonthlyText = null;
-					var ccExpiry = null;
-					if (ccMonthly) {
-						var mCur = ccMonthly.currency === "USD" ? "$" : (ccMonthly.currency || "") + " ";
-						var mText;
-						// 已用 = 总额 − 剩余。host 侧 remaining 把赠送/购买额度也累加进来，可能超过
-						// total，故百分比必须夹到 [0,100]，否则会算出负数或 >100%。total 缺失或 ≤0
-						// 时算不出百分比，退回只显示剩余金额（避免 NaN / Infinity）。
-						var mTotal = (ccMonthly.total != null && ccMonthly.total > 0) ? ccMonthly.total : null;
-						if (mTotal !== null) {
-							var mUsed = Math.min(Math.max(mTotal - ccMonthly.remaining, 0), mTotal);
-							mText = fmtPct((mUsed / mTotal) * 100)
-								+ "（" + mCur + fmtNum2(mUsed) + "/" + mCur + fmtNum2(mTotal) + "）";
-						} else {
-							mText = mCur + fmtNum2(ccMonthly.remaining);
-						}
-						// 与 5h / 7d 行写法一致：末尾跟本周期剩余时间的倒计时。
-						// 周期结束时间即 periodEnd，复用同一个 countdownStr，格式与窗口行完全统一。
-						// （原先这里显示套餐名，如 goat。）
-						var cdMonthly = countdownStr(ccMonthly.periodEnd);
-						if (cdMonthly) mText += " · " + cdMonthly;
-						ccMonthlyText = mText;
-						// 到期时间（订阅计费周期结束）：2026-10-08 · 剩 28 天
-						var pd = ccMonthly.periodEnd ? new Date(ccMonthly.periodEnd) : null;
-						if (pd && pd.getTime() === pd.getTime()) {
-							var pad2 = (n) => String(n).padStart(2, "0");
-							ccExpiry = pd.getFullYear() + "-" + pad2(pd.getMonth() + 1) + "-" + pad2(pd.getDate());
-							if (ccMonthly.daysLeft != null && ccMonthly.daysLeft >= 0) {
-								ccExpiry += " · " + tx("leftDays") + " " + ccMonthly.daysLeft + tx("daysUnit");
-							}
-						}
-					}
-					for (var i = 0; i < wins.length; i++) {
-						var w = wins[i];
-						// 标签走浮层专用的紧凑键（5h / 7d / 30d）；缺键时回退到 host 给的 label。
-						var wk = w.key ? tx("quota.win." + w.key) : null;
-						var title = (wk && wk !== "quota.win." + w.key) ? wk : (w.label || w.key || tx("window"));
-						var pct = (w.percent !== null && w.percent !== undefined) ? fmtPct(w.percent) : null;
-						var detail = pct || "";
-						// 仅当 percent 有效时才折算金额，避免 null 时拼出误导的 $0.00。
-						if (pct && w.limitUsd !== null && w.limitUsd !== undefined) detail += "（$" + fmtNum2(w.percent / 100 * w.limitUsd) + "/$" + fmtNum2(w.limitUsd) + "）";
-						if (w.rateLimited) detail += " " + tx("rateLimited");
-						var cd = countdownStr(w.resetsAt);
-						rows.push(row(title, detail + (cd ? " · " + cd : "")));
-					}
-					if (ccMonthlyText !== null) rows.push(row(tx("quota.win.monthly"), ccMonthlyText));
-					if (ccExpiry) rows.push(row(tx("expiresOn"), ccExpiry));
-					return rows;
-				}
-				return null;
+				var balText = balanceValue(b.balance);
+				if (balText) out.push(row(tx("balanceName"), balText));
+				var perText = periodValue(b.period, { more: more });
+				if (perText) out.push(row(tx("expiresOn"), perText));
+				return out.length ? out : [row(tx("balance"), tx("noData"))];
 			};
 
 			// 把 balanceRows 的结果映射为 DOM 行元素。
@@ -1094,6 +1052,7 @@ window.__ModuleLoader__.load({
 			const [hoverRefresh, setHoverRefresh] = React.useState(QSettings.hoverRefresh);
 			const [autoRefreshOn, setAutoRefreshOn] = React.useState(QSettings.autoRefreshOn);
 			const [min, setMin] = React.useState(String(QSettings.autoRefreshMin));
+			const [showMore, setShowMore] = React.useState(QSettings.showMore);
 			const [fontSize, setFontSize] = React.useState(QSettings.fontSize || "middle");
 			const [language, setLanguage] = React.useState(QSettings.language || "system");
 			// 即时保存：不再有「保存」按钮，改动即持久化。
@@ -1109,19 +1068,15 @@ window.__ModuleLoader__.load({
 			const [refreshAllBusy, setRefreshAllBusy] = React.useState(false);
 			const [showAllQuota, setShowAllQuota] = React.useState(false); // 是否展开全部（含无数据/未识别厂商）
 			const styleBase = { background: "var(--dsw-alias-bg-layer-1)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 12, padding: "14px" };
-			// 该 provider 是否有「可展示的数据」（余额/限额已查得，或有明确状态文案），
-			// 无数据/未识别的官方厂商在收起态下隐藏，展开全部才显示。
-			// 「尚未查询到结果」的行先当作有数据显示，避免逐项查询期间表格闪烁空白。
-			const quotaHasData = (p) => {
+			// 该 provider 是否有「可展示的数据」（窗口 / 余额 / 到期，或有明确状态文案）；
+			// 无数据或未识别的厂商在收起态下隐藏，展开全部才显示。
+			// 「尚未查询到结果 / 查询失败」的行先当作有数据显示，避免逐项查询期间表格闪烁空白。
+			const quotaRowVisible = (p) => {
 				const row = quotaRow[p.provider];
-				if (row === undefined) return true;    // 尚未查到，先显示
-				if (row === null) return true;         // 查询失败，先显示
-				if (row.recognized === false) return false; // 未识别厂商
-				const c = quotaCells(row);
-				if (c.balance || c.rolling || c.weekly || c.monthly) return true; // 有余额或限额或状态文案
-				return false;
+				if (row === undefined || row === null) return true;
+				return hasQuotaData(row);
 			};
-			const visibleProviders = showAllQuota ? providers : providers.filter(quotaHasData);
+			const visibleProviders = showAllQuota ? providers : providers.filter(quotaRowVisible);
 			const hiddenCount = providers.length - visibleProviders.length;
 			// 载入：枚举 provider 列表，然后逐个取余量（复用模块级 quotaCache，命中即不请求）。
 			React.useEffect(() => {
@@ -1171,11 +1126,12 @@ window.__ModuleLoader__.load({
 			// 即时保存：只提交变更字段（host 侧 `set` 是 `{...已存, ...patch}` 合并语义，
 			// 因此不会覆盖别处的改动）。成功提示 1.8s 后自动消失；失败常驻
 			// （遵循本插件的 ADR-0001：显式失败，不静默）。
-			const persist = (patch) => {
+			const persist = (patch, onFail) => {
 				saveSettings(rpc, patch).then((ok) => {
 					setStatus(ok ? "saved" : "failed");
 					if (statusTimer.current) { clearTimeout(statusTimer.current); statusTimer.current = null; }
 					if (ok) statusTimer.current = setTimeout(() => setStatus(null), 1800);
+					else if (onFail) onFail();
 				});
 			};
 			// 「定时刷新间隔」是数字输入框：**失焦 / 回车**时才提交。
@@ -1188,14 +1144,28 @@ window.__ModuleLoader__.load({
 				if (m !== QSettings.autoRefreshMin) persist({ autoRefreshMin: m });
 			};
 			// 表头单元格样式辅助（含竖线分隔）。
-			const th = (text, opt) => React.createElement("th", {
-				style: {
-					padding: "6px 8px", fontSize: 11, fontWeight: 600, color: "var(--dsw-alias-label-secondary)",
-					borderBottom: "1px solid var(--dsw-alias-border-l2)", whiteSpace: "nowrap",
-					borderLeft: opt && opt.first ? "none" : "1px solid var(--dsw-alias-border-l2)",
-					textAlign: opt && opt.left ? "left" : "right"
+			const thStyle = (opt) => ({
+				padding: "6px 8px", fontSize: 11, fontWeight: 600, color: "var(--dsw-alias-label-secondary)",
+				borderBottom: "1px solid var(--dsw-alias-border-l2)", whiteSpace: "nowrap",
+				borderLeft: opt && opt.first ? "none" : "1px solid var(--dsw-alias-border-l2)",
+				textAlign: opt && opt.left ? "left" : "right"
+			});
+			const th = (text, opt) => React.createElement("th", { key: opt && opt.key, style: thStyle(opt) }, text);
+			// 窗口列由「当前可见行的窗口并集」决定（按真实时长排序）：厂商换了窗口时长
+			// （例如某天出现 5 天窗）表格会自动多一列，不需要改代码。
+			const windowCols = (() => {
+				const byKey = new Map();
+				for (const p of visibleProviders) {
+					for (const w of sortedWindows(quotaRow[p.provider])) {
+						if (w && w.key && !byKey.has(w.key)) byKey.set(w.key, { key: w.key, durationHours: w.durationHours });
+					}
 				}
-			}, text);
+				return [...byKey.values()].sort((a, c) => {
+					const ha = a.durationHours != null ? a.durationHours : Infinity;
+					const hc = c.durationHours != null ? c.durationHours : Infinity;
+					return ha - hc;
+				});
+			})();
 			return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14, maxWidth: 720 } },
 				React.createElement("div", { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 } },
 					React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
@@ -1231,6 +1201,15 @@ window.__ModuleLoader__.load({
 						React.createElement("span", { style: { fontSize: 13, color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" } }, tx("settings.interval")),
 						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), onBlur: commitMin, onKeyDown: (e) => { if (e.key === "Enter") { e.preventDefault(); commitMin(); } }, style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none", opacity: autoRefreshOn ? 1 : 0.55 } }),
 						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)", opacity: autoRefreshOn ? 1 : 0.6 } }, tx("settings.intervalMin"))
+					),
+					// 「显示更多信息」：默认关——余量只显示比例数字与到期日期，金额/倒计时按需打开。
+					// 浮层与设置页表格读取的是同一个 QSettings.showMore，因此两处永远同步。
+					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
+						React.createElement("input", { type: "checkbox", checked: showMore, onChange: (e) => { const v = e.target.checked; const prev = QSettings.showMore; QSettings.showMore = v; setShowMore(v); persist({ showMore: v }, () => { QSettings.showMore = prev; setShowMore(prev); }); } }),
+						React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
+							React.createElement("span", null, tx("settings.moreInfo")),
+							React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, tx("settings.moreInfoDesc"))
+						)
 					)
 				),
 				React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
@@ -1260,33 +1239,43 @@ window.__ModuleLoader__.load({
 					),
 					providers.length === 0
 						? React.createElement("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)" } }, quotaLoaded ? tx("quota.empty") : tx("quota.loading"))
-						: React.createElement("div", { style: { overflowX: "auto", maxWidth: "100%" } },
-							React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 460 } },
+						: React.createElement("div", { style: { maxWidth: "100%" } },
+							// 宁可折行也不横向滚动：单元格允许换行（超长 token 也允许断开），
+							// 表格宽度自适应卡片，不再设 minWidth + overflowX。
+							React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
 								React.createElement("thead", null,
 									React.createElement("tr", { style: { borderBottom: "1px solid var(--dsw-alias-border-l2)" } },
-										th(tx("quota.col.provider"), { left: true, first: true }),
-										th(tx("quota.col.rolling")),
-										th(tx("quota.col.weekly")),
-										th(tx("quota.col.monthly")),
-										th(tx("quota.col.balance")),
-										th(tx("quota.col.action"))
+										th(tx("quota.col.provider"), { left: true, first: true, key: "__provider" }),
+										...windowCols.map((col) => th(windowLabel(col), { key: col.key })),
+										th(tx("quota.col.balance"), { key: "__balance" }),
+										th(tx("expiresOn"), { key: "__period" }),
+										th(tx("quota.col.action"), { key: "__action" })
 									)
 								),
 								React.createElement("tbody", null,
 									visibleProviders.map((p) => {
 										const row = quotaRow[p.provider];
-										const c = row ? quotaCells(row) : { rolling: "", weekly: "", monthly: "", balance: "" };
-										const cellStyle = { padding: "6px 8px", borderBottom: "1px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-primary)", whiteSpace: "nowrap" };
+										// 每个窗口格与浮层用同一个函数生成，保证两处同字；表格不显示倒计时（列会太宽）。
+										const cells = {};
+										for (const w of sortedWindows(row)) {
+											if (w && w.key) cells[w.key] = windowValue(w, { more: QSettings.showMore, countdown: false });
+										}
+										const status = quotaStatusText(row);
+										// 允许换行：长内容折成多行，而不是把表格顶宽、逼用户横向滚动。
+										const cellStyle = { padding: "5px 8px", borderBottom: "1px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-primary)", whiteSpace: "normal", overflowWrap: "anywhere", verticalAlign: "top" };
 										const nameStyle = { ...cellStyle, color: "var(--dsw-alias-label-secondary)", fontWeight: 500, borderLeft: "none" };
 										const numStyle = { ...cellStyle, textAlign: "right", borderLeft: "1px solid var(--dsw-alias-border-l2)" };
-										const balStyle = { ...numStyle, color: row && (row.error || !row.supported) ? "var(--dsw-alias-label-tertiary)" : "var(--dsw-alias-label-primary)" };
+										const statusStyle = { ...numStyle, color: "var(--dsw-alias-label-tertiary)" };
 										const isRefreshing = !!refreshing[p.provider];
 										return React.createElement("tr", { key: p.provider, style: { borderBottom: "1px solid var(--dsw-alias-border-l2)" } },
-											React.createElement("td", { style: nameStyle }, p.displayName || p.provider),
-											React.createElement("td", { style: numStyle }, c.rolling),
-											React.createElement("td", { style: numStyle }, c.weekly),
-											React.createElement("td", { style: numStyle }, c.monthly),
-											React.createElement("td", { style: balStyle }, c.balance),
+											React.createElement("td", { style: nameStyle },
+												(p.displayName || p.provider),
+												// 查不了 / 出错时状态跟在名称后面，不占用具体数据列（否则会被读成「余额是不支持」）。
+												status ? React.createElement("span", { style: { marginLeft: 6, fontSize: 11, color: "var(--dsw-alias-label-tertiary)", fontWeight: 400 } }, "· " + status) : null
+											),
+											...windowCols.map((col) => React.createElement("td", { key: col.key, style: numStyle }, cells[col.key] || "")),
+											React.createElement("td", { style: row && (row.error || !row.supported) ? statusStyle : numStyle }, row ? balanceValue(row.balance) : ""),
+											React.createElement("td", { style: row && (row.error || !row.supported) ? statusStyle : numStyle }, row ? periodValue(row.period, { more: QSettings.showMore }) : ""),
 											React.createElement("td", { style: { ...numStyle, textAlign: "right" } },
 												React.createElement("button", { type: "button", onClick: () => refreshRow(p), disabled: isRefreshing, style: { padding: "2px 8px", fontSize: 11, cursor: isRefreshing ? "default" : "pointer", background: "transparent", color: "var(--dsw-alias-label-secondary)", border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 6, opacity: isRefreshing ? 0.55 : 1 } }, isRefreshing ? tx("refreshing") : tx("refresh"))
 											)
