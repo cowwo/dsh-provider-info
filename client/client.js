@@ -36,6 +36,11 @@ window.__ModuleLoader__.load({
 			"daysUnit": "天",
 			"leftDays": "剩",
 			"queryFailed": "查询失败",
+			"netUnreachable": "网络不可达",
+			"queryTimeout": "查询超时",
+			"httpRateLimited": "请求过频（429）",
+			"httpServerError": "服务端错误",
+			"httpStatus": "HTTP 状态",
 			"noApiKey": "未配置 API Key",
 			"subscriptionRequired": "订阅权限不足",
 			"unauthorized": "密钥无效",
@@ -112,6 +117,11 @@ window.__ModuleLoader__.load({
 			"daysUnit": "d",
 			"leftDays": "left",
 			"queryFailed": "Query failed",
+			"netUnreachable": "Network unreachable",
+			"queryTimeout": "Query timed out",
+			"httpRateLimited": "Rate limited (429)",
+			"httpServerError": "Server error",
+			"httpStatus": "HTTP status",
 			"noApiKey": "No API Key configured",
 			"subscriptionRequired": "Subscription not sufficient",
 			"unauthorized": "Invalid key",
@@ -378,7 +388,12 @@ window.__ModuleLoader__.load({
 			if (opts && opts.more && p.daysLeft != null && p.daysLeft >= 0) out += " · " + tx("leftDays") + " " + p.daysLeft + tx("daysUnit");
 			return out;
 		};
-		/** 出错 / 暂不支持 → 文案（浮层与表格同一句话）。 */
+		/**
+		 * 出错 / 暂不支持 → 文案（浮层与表格同一句话）。
+		 * 兜底不再一律「查询失败」：把原始 error 拆成能指路的三类——网络不可达 / 查询超时 / HTTP 状态码。
+		 * 用户看到「网络不可达」就知道该查代理或梯子，看到「请求过频（429）」就知道是厂商在限流，
+		 * 而不是一句无从下手的「查询失败」（ADR-0001：显式失败，不静默、也不含混）。
+		 */
 		function quotaErrorText(b) {
 			if (!b) return "";
 			// 未识别厂商 / 已识别但暂不支持查询 → 统一提示「暂不支持查询当前提供商」。
@@ -388,7 +403,24 @@ window.__ModuleLoader__.load({
 			if (b.error === "unauthorized") return tx("unauthorized");
 			if (b.error === "http-404") return tx("http404");
 			if (b.error === "missing-usage" || b.error === "missing-windows" || b.error === "no-data") return tx("missingUsage");
+			if (b.error === "network") return tx("netUnreachable");
+			if (b.error === "timeout") return tx("queryTimeout");
+			var m = /^http-(\d{3})$/.exec(b.error || "");
+			if (m) {
+				var code = Number(m[1]);
+				if (code === 429) return tx("httpRateLimited");
+				return (code >= 500 ? tx("httpServerError") : tx("httpStatus")) + " " + code;
+			}
 			return tx("queryFailed");
+		}
+		/** 瞬时失败（值得自动重试一次）：网络不可达 / 超时 / 429 / 5xx。确定性错误（401/404…）不重试。 */
+		function isTransientQuota(b) {
+			if (!b || !b.error) return false;
+			if (b.error === "network" || b.error === "timeout") return true;
+			var m = /^http-(\d{3})$/.exec(b.error);
+			if (!m) return false;
+			var code = Number(m[1]);
+			return code === 429 || code >= 500;
 		}
 		/** 该结果是否有可展示的数据（决定设置页表格收起态是否隐藏该行）。 */
 		function hasQuotaData(b) {
@@ -843,6 +875,18 @@ window.__ModuleLoader__.load({
 			const hideTip = () => {
 				if (tip) tip.style.display = "none";
 			};
+			//#region 悬停事件的节点判定（relatedTarget / target 不保证是 Node）
+			// 原生鼠标事件的 relatedTarget 在「指针移出页面」时不可靠：移到浏览器 UI / DevTools /
+			// 另一个窗口时，Chrome 会给出 window 这类**非 Node** 的 EventTarget，React 的合成事件
+			// 原样透传。而 Node.contains() 只接受 Node，传进去会抛
+			// 「Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'」——
+			// 一旦在 onLeave 里抛出，后面的 hovering=false / showSeq++ / 收起定时器全都不会执行，
+			// 状态机就卡在「还悬停着」：浮层不消失、过期悬停会话也不再作废（"移开后忽然弹出"复发）。
+			// 所以凡是要 contains 的入参先过这道判定（用 nodeType 而不是 instanceof Node：
+			// 跨 realm 的节点 instanceof 会误判，nodeType 不会）。
+			const isNodeLike = (x) => !!x && typeof x === "object" && typeof x.nodeType === "number";
+			const containsNode = (root, n) => !!(root && isNodeLike(n) && typeof root.contains === "function" && root.contains(n));
+			//#endregion
 			// 悬浮热区只绑在提供商徽章小标签上：悬停标签才弹浮窗；
 			// 移向按钮本体短暂宽限（LEAVE_GRACE）后收起——避免标签小、擦边就丢悬停；
 			// 若模型下拉已展开（aria-expanded=true）则立即收起，绝不遮挡正在选的菜单。
@@ -856,7 +900,7 @@ window.__ModuleLoader__.load({
 			};
 			const onLeave = (e) => {
 				const next = e && e.relatedTarget;
-				const intoTip = !!(tip && next && (next === tip || (tip.contains && tip.contains(next))));
+				const intoTip = !!(tip && next && (next === tip || containsNode(tip, next)));
 				hovering = false;
 				if (showTimer) clearTimeout(showTimer);
 				showTimer = null;
@@ -866,7 +910,7 @@ window.__ModuleLoader__.load({
 				// 这样不会出现“悬停时没反应、移开后请求回来才忽然弹出”。
 				if (!intoTip) showSeq++;
 				const anchorEl = getAnchor();
-				const stayingOnSeat = seatAnchorMode && anchorEl && next && (next === anchorEl || (anchorEl.contains && anchorEl.contains(next)));
+				const stayingOnSeat = !!(seatAnchorMode && anchorEl && (next === anchorEl || containsNode(anchorEl, next)));
 				if (stayingOnSeat) {
 					const menuOpen = !!(anchorEl.getAttribute && anchorEl.getAttribute("aria-expanded") === "true");
 					if (menuOpen) { hideTip(); return; }
@@ -887,10 +931,10 @@ window.__ModuleLoader__.load({
 				const target = ev && ev.target;
 				const hot = getHotzone();
 				const anchorEl = getAnchor();
-				const inTip = !!(tip && target && tip.contains && tip.contains(target));
+				const inTip = containsNode(tip, target);
 				if (inTip) return;
-				const inHot = !!(hot && target && (hot === target || (hot.contains && hot.contains(target))));
-				const inSeat = !!(seatAnchorMode && anchorEl && target && (target === anchorEl || (anchorEl.contains && anchorEl.contains(target))));
+				const inHot = !!(hot && (hot === target || containsNode(hot, target)));
+				const inSeat = !!(seatAnchorMode && anchorEl && (target === anchorEl || containsNode(anchorEl, target)));
 				if (inHot && !inSeat) return;
 				hovering = false;
 				showSeq++;
@@ -1155,6 +1199,10 @@ window.__ModuleLoader__.load({
 			const visibleProviders = showAllQuota ? providers : providers.filter(quotaRowVisible);
 			const hiddenCount = providers.length - visibleProviders.length;
 			// 载入：枚举 provider 列表，然后逐个取余量（复用模块级 quotaCache，命中即不请求）。
+			// 首轮里「瞬时失败」的行（网络不可达 / 超时 / 429 / 5xx）隔 1.8s 自动强查一次：
+			// 打开设置页往往紧跟在 DSH 启动之后，代理/VPN 还没热，首轮 network 属于常见形态——
+			// 一次瞬时抖动不该让表格一直挂着失败状态等人手点「刷新」。
+			const TRANSIENT_RETRY_DELAY_MS = 1800;
 			React.useEffect(() => {
 				let alive = true;
 				(async () => {
@@ -1170,6 +1218,16 @@ window.__ModuleLoader__.load({
 					if (!alive) return;
 					// 合并已有（避免覆盖手工刷新结果）
 					setQuotaRow((prev) => ({ ...prev, ...next }));
+					const retryable = list.filter((p) => isTransientQuota(next[p.provider]));
+					if (!retryable.length) return;
+					await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+					if (!alive) return;
+					const again = {};
+					for (const p of retryable) {
+						again[p.provider] = await fetchProviderQuota(p.provider, p, true);
+					}
+					if (!alive) return;
+					setQuotaRow((prev) => ({ ...prev, ...again }));
 				})();
 				return () => { alive = false; };
 			}, []);

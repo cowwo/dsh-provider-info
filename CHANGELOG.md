@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-15
+
+### Fixed
+- **「查询失败」不再一律糊成一句话，也不再被钉住 5 分钟**。用户侧的现象是：设置页「全部提供商余量」里 cmd / go 几家全 `查询失败`，可同一时刻浮层却能拿到 go-02 的窗口数据——同一段 host 代码，为什么两处不一致？因为一次**瞬时连接失败**（代理冷启动的 `ECONNRESET`、路由抖动）＋**失败结果也被负缓存 5 分钟**：浮层开着「悬停自动刷新」每次都 `force=true` 绕缓存，表格首轮是 `force=false` 吃缓存，于是表格把失败状态展示了整整 5 分钟。
+  - **失败只做短去重**：`BALANCE_FAILURE_TTL_MS = 20s`，成功仍是 5 分钟（`lib/index.js`）。20 秒足够合并「连续悬停 / 多端同时打开设置页」，但不会让失败赖着不走；过了 20 秒表格下次自动重查即自愈。
+  - **瞬时失败自动重试一次**（`lib/index.js` 的 `requestJson` 拆成 `requestJsonOnce` + 重试循环）：`network` / `timeout` / 429 / 5xx 重试，401/403/404 这类确定性错误不重试；重试那次的超时上限压到 8s，真不通的域名不会让人干等两轮 15s。三家端点都是只读 GET，重试没有副作用。
+  - **错误文案细分，能指路**（`client/client.js` 的 `quotaErrorText`）：`network` → 「网络不可达」、`timeout` → 「查询超时」、429 → 「请求过频（429）」、5xx → 「服务端错误 503」、其它 `http-4xx` → 「HTTP 状态 418」；只有归不了类的才是「查询失败」。原本的 `no-api-key` / `unauthorized` / `subscription-required` / `http-404` / `missing-usage` 文案不变（ADR-0001：显式失败，不静默、也不含混）。
+  - **设置页首轮失败会自己重来一次**：首轮里属于瞬时失败的行，1.8s 后自动 `force=true` 强查一遍——打开设置页往往紧跟 DSH 启动，代理还没热，不该让用户为此手点「刷新」。确定性错误（没配密钥、地址错、401）不重试。
+  - host 侧失败时打一行 `console.warn('[provider-badge] 余量查询失败', { provider, family, error })`：界面只给中文，排查得有原始 error 可看。
+- **指针移出页面时抛 `TypeError`，把悬停状态机打断**：`onLeave` 里的 `tip.contains(e.relatedTarget)` / `anchorEl.contains(e.relatedTarget)` 把 relatedTarget 直接交给了 `Node.contains()`，而 Chrome 在「指针移到浏览器 UI / DevTools / 另一个窗口」时会把原生 `mouseout` 的 `relatedTarget` 给成 `window` 这类**非 Node** 的 EventTarget（React 合成事件原样透传）。控制台于是抛
+  `Uncaught TypeError: Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'. at Object.onLeave (client.js:859)`；
+  更麻烦的是**抛出点在 `hovering = false` 之前**——`hovering` 归位、`showSeq++`（在途悬停结果作废）、收起定时器全都不执行，表现就是：鼠标早移到别处了，浮层还挂着不消失；0.7.7 修过的"移开后忽然弹出"在崩溃路径上复发。
+  - 新增 `containsNode(root, n)` 统一收口：先用 `nodeType` 判定入参是不是节点（不用 `instanceof Node`——跨 realm 的节点会误判），再调 `contains`；`onLeave` / `onDocMouseDown` 里 5 处裸 `.contains(` 全部改走它。
+
+### Added
+- `tools/verify-resilience.mjs`：把 `globalThis.fetch` 换成剧本化替身，跑真实的 `ProviderBadgeService.balance()`，断言 ① `ECONNRESET` 重试一次即成功、② 429/5xx 重试而 401 只发一次、③ 失败 20s 内命中缓存、过 20s 自动重查、④ 成功仍按 5 分钟缓存（用可控时钟挪 `Date.now`，不真等）。全程不打厂商接口。
+- `tools/verify-format.mjs` 新增两组断言：出错文案与 `isTransientQuota` 真值表（14 条），以及悬停状态机回归——从 `client.js` 抽**真实源码**跑 `onEnter/onLeave`，用「真 Node 之外一律抛」的 `contains` 替身复现线上崩溃，断言 ① 非 Node 的 relatedTarget 不抛、② `hovering` 归位、③ 悬停代际自增、④ 收起定时器装上且到点真的收起；另加一条源码级断言：除 `containsNode` 内部外不允许再出现裸的 `.contains(`。旧写法下这 6 条会全红（已验证）。
+
 ## [0.12.0] - 2026-09-14
 
 ### Added

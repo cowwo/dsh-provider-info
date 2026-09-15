@@ -34,7 +34,15 @@ const dict = {
 	noData: '无数据',
 	noSupportProvider: '当前暂不支持查询当前提供商',
 	noApiKey: '未配置 API Key',
+	subscriptionRequired: '订阅权限不足',
+	unauthorized: '密钥无效',
+	http404: '接口地址错误',
 	queryFailed: '查询失败',
+	netUnreachable: '网络不可达',
+	queryTimeout: '查询超时',
+	httpRateLimited: '请求过频（429）',
+	httpServerError: '服务端错误',
+	httpStatus: 'HTTP 状态',
 	missingUsage: '接口无用量数据'
 }
 const tx = (k) => (dict[k] != null ? dict[k] : k)
@@ -42,7 +50,7 @@ const resolveLang = () => 'zh'
 
 // eslint-disable-next-line no-new-func
 const api = new Function('tx', 'resolveLang', region + `
-	return { windowLabel, windowValue, windowCells, windowColumns, balanceValue, periodValue, quotaErrorText, quotaStatusText, hasQuotaData, sortedWindows };
+	return { windowLabel, windowValue, windowCells, windowColumns, balanceValue, periodValue, quotaErrorText, quotaStatusText, isTransientQuota, hasQuotaData, sortedWindows };
 `)(tx, resolveLang)
 
 let failed = 0
@@ -145,6 +153,23 @@ check('kimi 是否显示该行', api.hasQuotaData(kimi), true)
 check('未识别厂商收起态隐藏', api.hasQuotaData(unknown), false)
 check('未识别厂商状态文案', api.quotaStatusText(unknown), '当前暂不支持查询当前提供商')
 
+console.log('\n【出错文案：能指路，不再一律「查询失败」】')
+const errQuota = (error) => ({ supported: true, recognized: true, family: 'opencode-go', error, balance: null, windows: null, period: null })
+check('连接被 reset', api.quotaErrorText(errQuota('network')), '网络不可达')
+check('超时', api.quotaErrorText(errQuota('timeout')), '查询超时')
+check('厂商限流', api.quotaErrorText(errQuota('http-429')), '请求过频（429）')
+check('服务端错误带状态码', api.quotaErrorText(errQuota('http-503')), '服务端错误 503')
+check('其它 HTTP 状态带状态码', api.quotaErrorText(errQuota('http-418')), 'HTTP 状态 418')
+check('未知原因仍兜底「查询失败」', api.quotaErrorText(errQuota('something-else')), '查询失败')
+check('原有文案不被顶掉：密钥', api.quotaErrorText(errQuota('no-api-key')), '未配置 API Key')
+check('原有文案不被顶掉：404', api.quotaErrorText(errQuota('http-404')), '接口地址错误')
+check('瞬时失败：network 值得重试', api.isTransientQuota(errQuota('network')), true)
+check('瞬时失败：timeout 值得重试', api.isTransientQuota(errQuota('timeout')), true)
+check('瞬时失败：503 值得重试', api.isTransientQuota(errQuota('http-503')), true)
+check('确定性失败：401 不重试', api.isTransientQuota(errQuota('http-401')), false)
+check('确定性失败：没配密钥不重试', api.isTransientQuota(errQuota('no-api-key')), false)
+check('查成功的行不重试', api.isTransientQuota(opencodeGo), false)
+
 console.log('\n【余额不足后缀】')
 check('余额不足', api.balanceValue({ isAvailable: false, items: [{ currency: 'CNY', total: 0 }] }), '¥0.00（余额不足）')
 
@@ -188,6 +213,101 @@ QSettingsStub.showMore = false
 check('关掉「显示更多信息」时：不给占位（尾列本来就该空）', api.windowColumns(idleWindow, { more: false, countdown: true }).tail, '')
 check('关掉「显示更多信息」：到期行仍在（只剩日期）', panelShape(opencodeGo)[1], 'row 到期 | N-N-N')
 QSettingsStub.showMore = true
+
+// ---- 悬停状态机的崩溃回归：relatedTarget 可能是非 Node ----
+// 线上实测（用户浏览器控制台）：指针移出页面（浏览器 UI / DevTools / 另一个窗口）时，
+// Chrome 会把原生 mouseout 的 relatedTarget 给成 window 这类非 Node，React 合成事件原样透传；
+// 旧代码 `tip.contains(next)` 直接抛 TypeError，onLeave 被就地打断 → hovering 卡在 true、
+// 收起定时器没装上 → 浮层不消失。这里同样抽**真实源码**跑，不复制实现。
+const guardStart = src.indexOf('//#region 悬停事件的节点判定')
+const guardEnd = src.indexOf('//#endregion', guardStart)
+if (guardStart < 0 || guardEnd < 0) throw new Error('找不到 client.js 里的悬停节点判定 region')
+const guardRegion = src.slice(guardStart, guardEnd)
+const leaveStart = src.indexOf('const onEnter = () => {')
+const leaveEnd = src.indexOf('// 滚动/尺寸变化', leaveStart)
+if (leaveStart < 0 || leaveEnd < 0) throw new Error('找不到 client.js 里的 onEnter/onLeave')
+const leaveSrc = src.slice(leaveStart, leaveEnd)
+
+/** 用最小替身把 createTipController 里的 onEnter/onLeave 跑起来（真实源码注入）。 */
+const mkHoverHarness = () => {
+	const fakeSetTimeout = (fn, ms) => ({ fn, ms })
+	const fakeClearTimeout = () => {}
+	// eslint-disable-next-line no-new-func
+	const ctl = new Function('setTimeout', 'clearTimeout', `
+		let tip = null, hovering = false, showTimer = null, hideTimer = null, showSeq = 0, hidden = false;
+		const showTip = () => {};
+		const hideTip = () => { hidden = true; };
+		const getAnchor = () => null;
+		const seatAnchorMode = false;
+		const SHOW_DELAY = 120, HIDE_DELAY = 100, LEAVE_GRACE = 120;
+		${guardRegion}
+		${leaveSrc}
+		return {
+			setTip: (t) => { tip = t; },
+			onEnter, onLeave,
+			state: () => ({ hovering, showSeq, hidden, hideMs: hideTimer ? hideTimer.ms : null }),
+			fireHide: () => { if (hideTimer) hideTimer.fn(); }
+		};
+	`)(fakeSetTimeout, fakeClearTimeout)
+	return ctl
+}
+
+console.log('\n【悬停状态机：relatedTarget 不是 Node 时不能把 onLeave 打断】')
+// 逼真的 Node.contains 替身：真 Node 之外一律抛 TypeError —— 这正是浏览器里的行为。
+// 替身若宽容（对什么都返回 false），这个回归就抓不到旧写法 `tip.contains(next)` 的崩溃。
+const mkTipStub = () => {
+	const inner = { nodeType: 1 }
+	const tipEl = {
+		nodeType: 1,
+		contains: (n) => {
+			if (!n || typeof n.nodeType !== 'number') throw new TypeError("Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'.")
+			return n === inner
+		}
+	}
+	return { tipEl, inner }
+}
+{
+	const { tipEl } = mkTipStub()
+	const winLike = { nodeType: undefined, document: {}, addEventListener: () => {} } // window：不是 Node
+	const ctl = mkHoverHarness()
+	ctl.setTip(tipEl)
+	ctl.onEnter()
+	check('悬停中', ctl.state().hovering, true)
+	let threw = null
+	try { ctl.onLeave({ relatedTarget: winLike }) } catch (e) { threw = e.message }
+	check('relatedTarget 是 window（非 Node）时不抛', threw, null)
+	check('移出后 hovering 归位', ctl.state().hovering, false)
+	check('移出后悬停代际自增（在途结果作废）', ctl.state().showSeq, 2)
+	check('移出后装上收起定时器（HIDE_DELAY）', ctl.state().hideMs, 100)
+	ctl.fireHide()
+	check('定时器到点后浮层收起', ctl.state().hidden, true)
+}
+{
+	const { tipEl, inner } = mkTipStub()
+	const ctl = mkHoverHarness()
+	ctl.setTip(tipEl)
+	ctl.onEnter()
+	ctl.onLeave({ relatedTarget: inner })
+	check('挪进浮窗：代际不自增（面板继续显示）', ctl.state().showSeq, 1)
+	check('挪进浮窗：照样挂收起定时器（到点按 hovering 决定）', ctl.state().hideMs, 100)
+}
+{
+	const { tipEl } = mkTipStub()
+	const ctl = mkHoverHarness()
+	ctl.setTip(tipEl)
+	ctl.onEnter()
+	ctl.onLeave({ relatedTarget: null })
+	check('relatedTarget 为 null 时正常收尾', ctl.state().hovering === false && ctl.state().showSeq === 2, true)
+	ctl.onEnter()
+	let threw2 = null
+	try { ctl.onLeave(undefined) } catch (e) { threw2 = e.message }
+	check('连事件对象都没有时也不抛', threw2, null)
+}
+const bareContains = src.split('\n')
+	.map((text, i) => ({ text, n: i + 1 }))
+	.filter(({ text }) => !/^\s*\/\//.test(text) && /\.contains\(/.test(text) && !/const containsNode = /.test(text))
+	.map(({ n }) => n)
+check('除 containsNode 内部外没有裸的 .contains(（否则又会把非 Node 传进去）', bareContains.join(','), '')
 
 console.log('\n' + (failed ? failed + ' 项不符' : '全部符合预期'))
 process.exit(failed ? 1 : 0)
