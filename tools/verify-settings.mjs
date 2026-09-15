@@ -42,23 +42,26 @@ check('未知键被剥离，不会到达 host 逻辑', reqSchema.safeParse({ op:
 check('类型错仍然报错', reqSchema.safeParse({ op: 'set', patch: { showMore: 'yes' } }).success, false)
 check('结果 schema 接受 {settings:{showMore}}', resSchema.safeParse({ settings: { showMore: false } }).success, true)
 
-console.log('\n【默认值：默认关闭】')
+console.log('\n【默认值：默认开启】')
 const got = await service.settings({ op: 'get' })
-check('默认 showMore', got.settings.showMore, false)
+check('默认 showMore', got.settings.showMore, true)
 check('默认返回值过结果 schema', resSchema.safeParse(got).success, true)
 
 console.log('\n【写入 → 读回 → 落盘】')
-const set = await service.settings({ op: 'set', patch: { showMore: true } })
-check('写入后返回 showMore', set.settings.showMore, true)
-check('再读一次仍是 true', (await service.settings({ op: 'get' })).settings.showMore, true)
-check('已落盘到 json 文件', JSON.parse(fs.readFileSync(file, 'utf8')).showMore, true)
+const set = await service.settings({ op: 'set', patch: { showMore: false } })
+check('写入后返回 showMore', set.settings.showMore, false)
+check('再读一次仍是 false', (await service.settings({ op: 'get' })).settings.showMore, false)
+check('已落盘到 json 文件', JSON.parse(fs.readFileSync(file, 'utf8')).showMore, false)
 check('其余设置未被破坏', (await service.settings({ op: 'get' })).settings.hoverRefresh, true)
 
 console.log('\n【脏数据夹回默认值】')
 fs.writeFileSync(file, JSON.stringify({ showMore: 'yes', hoverRefresh: null }))
 const dirty = await service.settings({ op: 'get' })
-check('字符串 "yes" 不算开启', dirty.settings.showMore, false)
+check('字符串 "yes" 回落到默认值（默认开）', dirty.settings.showMore, true)
 check('null 的 hoverRefresh 回落默认值', dirty.settings.hoverRefresh, true)
+
+fs.writeFileSync(file, JSON.stringify({ showMore: false }))
+check('显式 false 才算关（不被默认值顶回来）', (await service.settings({ op: 'get' })).settings.showMore, false)
 
 fs.rmSync(home, { recursive: true, force: true })
 console.log('\n' + (failed ? failed + ' 项不符' : '全部符合预期（临时目录已清理：' + path.basename(home) + '）'))

@@ -50,7 +50,7 @@ const resolveLang = () => 'zh'
 
 // eslint-disable-next-line no-new-func
 const api = new Function('tx', 'resolveLang', region + `
-	return { windowLabel, windowValue, windowCells, windowColumns, balanceValue, periodValue, quotaErrorText, quotaStatusText, isTransientQuota, hasQuotaData, sortedWindows };
+	return { windowLabel, windowValue, windowCells, windowColumns, compactWindowText, balanceValue, periodValue, quotaErrorText, quotaStatusText, isTransientQuota, hasQuotaData, sortedWindows };
 `)(tx, resolveLang)
 
 let failed = 0
@@ -141,6 +141,11 @@ check('余额型不受影响', api.balanceValue(deepseek.balance), '¥20.38 / $0
 check('「已限流」是状态警告，不随开关隐藏', api.windowValue({ key: 'rolling', percent: 5, rateLimited: true }, { more: false, countdown: true }), '5.00% · 已限流')
 check('「已限流」归到尾列', api.windowCells({ key: 'rolling', percent: 5, rateLimited: true }, { more: false }).tail, '已限流')
 check('浮层分列：只有比例＋已限流时，点加在比例后面', api.windowColumns({ key: 'rolling', percent: 5, rateLimited: true }, { more: false, countdown: true }).pct, '5.00% ·')
+// 收起态（不勾「显示更多信息」）：比例与限流标记拼成一段，作为一个右对齐的值渲染。
+check('收起态一行文本：只有比例', api.compactWindowText({ key: 'weekly', percent: 77, rateLimited: false }), '77.00%')
+check('收起态一行文本：比例＋已限流', api.compactWindowText({ key: 'rolling', percent: 5, rateLimited: true }), '5.00% · 已限流')
+check('收起态一行文本：没有比例时为空', api.compactWindowText({ key: 'rolling' }), '')
+check('（既有口径）百分比为 null 时按 0 显示，不当成缺失', api.compactWindowText({ key: 'rolling', percent: null }), '0.00%')
 
 console.log('\n【设置页表格：套餐型没有「余额」格（余额列只服务充值型）】')
 check('og 余额格', api.balanceValue(opencodeGo.balance), '')
@@ -193,16 +198,25 @@ const shapeText = (s) => String(s)
 const panelShape = (b) => panel.balanceRows(b).map((el) => (el.style.display === 'grid'
 	? el.children.map((c) => (c.style.gridColumn || 'auto') + ':' + shapeText(c.textContent)).join(' | ')
 	: 'row ' + el.children.map((c) => shapeText(c.textContent)).join(' | ')))
+/** 网格轨道数：`minmax(...)` 的个数 +1（模板里除了标签列都是 minmax）。 */
+const trackCount = (el) => (String(el.style.gridTemplateColumns).match(/minmax\(/g) || []).length + 1
 
 console.log('\n【浮层结构：两家厂商必须同一套规则（列位 / 分隔点 / 到期独立行）】')
 const ogPanel = panel.balanceRows(opencodeGo), ccPanel = panel.balanceRows(commandCode)
 check('og-01 与 cmd-01 的结构指纹一致', panelShape(commandCode).join(' // '), panelShape(opencodeGo).join(' // '))
 check('窗口行＝四列（auto,2,3,4 重复三行）', ogPanel[0].children.map((c) => c.style.gridColumn || 'auto').join(','), 'auto,2,3,4,auto,2,3,4,auto,2,3,4')
+check('展开态网格＝4 条轨道', trackCount(ogPanel[0]), 4)
 check('比例列与金额列都以「 ·」结尾', ogPanel[0].children.filter((c) => c.style.gridColumn === '2' || c.style.gridColumn === '3').every((c) => / ·$/.test(c.textContent)), true)
 check('尾列不带前导点（点挂在前一段末尾）', ogPanel[0].children.filter((c) => c.style.gridColumn === '4').every((c) => !/^· /.test(c.textContent)), true)
 check('「到期」行不在网格里（独立普通行）', ogPanel.length === 2 && ogPanel[1].style.display !== 'grid' && ogPanel[1].children[0].textContent === '到期', true)
 QSettingsStub.showMore = false
-check('关掉「显示更多信息」：窗口行只剩比例、且不带尾点', panelShape(opencodeGo)[0], 'auto:N小时 | 2:N% | 3: | 4: | auto:周 | 2:N% | 3: | 4: | auto:月 | 2:N% | 3: | 4:')
+// 收起态：窗口行只有「标签 | 比例」两个格子 —— 网格轨道数也跟着从 4 降到 2。
+// 若这时还留着空着的金额/尾列，两个 columnGap（10px×2）会把比例顶得离右边缘差 20px，
+// 与下面「到期」和上面「提供商 / 当前模型」各行的值对不齐（用户截图里的那处不齐）。
+const ogCompact = panel.balanceRows(opencodeGo)[0]
+check('关掉「显示更多信息」：窗口行只剩比例、且不带尾点', panelShape(opencodeGo)[0], 'auto:N小时 | 2 / -1:N% | auto:周 | 2 / -1:N% | auto:月 | 2 / -1:N%')
+check('关掉「显示更多信息」：网格只剩 2 条轨道（比例才贴得到右边缘）', trackCount(ogCompact), 2)
+check('关掉「显示更多信息」：行里没有空格子（不给空列占位）', ogCompact.children.every((c) => c.textContent !== ''), true)
 const idleWindow = { key: 'rolling', durationHours: 5, percent: 0, used: 0, total: 14, currency: 'USD', resetsAt: null, rateLimited: false }
 const idleCmd = { supported: true, recognized: true, error: null, balance: null, period: null, windows: [idleWindow] }
 check('没有重置时间（cmd 没开窗）：尾列给占位，不空着', api.windowColumns(idleWindow, { more: true, countdown: true }).tail, '—')

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-15
+
+### Changed
+- **「显示更多信息」默认改为勾选**（host 的 `SETTINGS_DEFAULTS.showMore` 与客户端的 `QSettings` 一起改）：新装用户直接看到金额、重置倒计时与到期剩余天数。口径与「显示悬浮窗自动刷新」一致——只有**显式存过 `false`** 才算关，缺字段或脏数据（如 `"yes"`）一律回落到默认开（`clampSettings` 里 `s.showMore !== false`）。已有用户若显式关过，升级后仍是关。
+
+### Fixed
+- **不勾「显示更多信息」时，余量比例跟右侧对不齐**：收起态的窗口行原本仍套在四列网格（标签 | 比例 | 金额 | 尾列）里，后两列空着，但两个 `columnGap`（10px×2）照算 —— 比例因此离面板右边缘差 20px，跟下面「到期」以及上面「提供商 / 当前模型」各行的值错开一档。现在收起态改用**两列网格**（`quotaGrid(rows, cols)`），比例（含「已限流」标记，先拼成一段 `compactWindowText`）作为一个右对齐的值直接贴右边缘；勾选态仍是四列、各列右边缘相互对齐。
+
+### Added
+- `tools/verify-format.mjs`：抽真实 `balanceRows` 源码 + DOM 替身，新增「收起态＝2 条轨道且行里没有空格子」「展开态＝4 条轨道」「收起态一行文本（纯比例 / 比例＋已限流 / 无比例）」等断言。
+- `tools/verify-settings.mjs`：默认值断言改为「默认开」，并补「非法值回落默认开、显式 `false` 才算关」。
+
 ## [0.15.0] - 2026-09-15
 
 ### Fixed

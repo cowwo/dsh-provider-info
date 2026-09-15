@@ -180,7 +180,7 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---- 插件设置（持久化于 host 侧 json 文件）----
-		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5, showMore: false, fontSize: 'middle', language: 'system' };
+		const QSettings = { hoverRefresh: true, autoRefreshOn: false, autoRefreshMin: 5, showMore: true, fontSize: 'middle', language: 'system' };
 		function loadSettings(rpc) {
 			try {
 				rpc.call("/api", "providerBadge/settings", { args: { request: { op: "get" } } }).then((resp) => {
@@ -326,7 +326,7 @@ window.__ModuleLoader__.load({
 		/**
 		 * 一个窗口拆成三段：`pct`（比例）/ `money`（`已用/总额`，不带括号）/ `tail`（限流标记 + 重置倒计时）。
 		 * 浮层拿这三段按列对齐渲染（见 gridCell / quotaGrid），表格侧仍用 windowValue 拼成一行。
-		 * 金额与倒计时属于「更多信息」（`opts.more`，默认关）；每个窗口都带自己的重置倒计时，
+		 * 金额与倒计时属于「更多信息」（`opts.more`，默认开）；每个窗口都带自己的重置倒计时，
 		 * 「月」行也不例外——它的重置时刻与「到期」相同，但两行各给一半信息（月行＝还有多久，
 		 * 到期行＝哪天），两行都留着才与 5小时 / 周 对齐。
 		 */
@@ -367,6 +367,16 @@ window.__ModuleLoader__.load({
 			var out = [c.pct, c.money, c.tail].filter(Boolean).join(" · ");
 			return out || tx("noData");
 		};
+		/**
+		 * 收起态（不勾「显示更多信息」）的窗口行文本：只有比例，外加厂商给的限流标记，拼成一段。
+		 * 收起态没有金额/倒计时列可对齐，所以整段作为一个右对齐的值渲染，
+		 * 贴着浮层右边缘 —— 与「到期」以及上方「提供商 / 当前模型」各行的值对齐（见 balanceRows 的 cols）。
+		 */
+		const compactWindowText = (w) => {
+			var c = windowCells(w, { more: false, countdown: false });
+			if (!c) return "";
+			return [c.pct, c.tail].filter(Boolean).join(" · ");
+		};
 		/** 余额（余额型）：按币种字母升序稳定显示（DeepSeek 接口的币种顺序不稳定），多币种用 " / " 连接。 */
 		const balanceValue = (bal) => {
 			var items = ((bal && bal.items) || []).slice()
@@ -376,7 +386,7 @@ window.__ModuleLoader__.load({
 			return parts.join(" / ") + (bal.isAvailable === false ? tx("insufficient") : "");
 		};
 		/**
-		 * 到期（订阅计费周期结束）：`2026-10-08`；「剩 28 天」属于「更多信息」（`opts.more`，默认关）。
+		 * 到期（订阅计费周期结束）：`2026-10-08`；「剩 28 天」属于「更多信息」（`opts.more`，默认开）。
 		 * 「到期」行不参与窗口行的列对齐，按浮层普通的「标签 + 右对齐文本」行渲染。
 		 */
 		const periodValue = (p, opts) => {
@@ -519,11 +529,7 @@ window.__ModuleLoader__.load({
 				r.appendChild(v);
 				return r;
 			};
-			/**
-			 * 余量区块的列对齐：四列 = 标签 | 比例 | 金额 | 尾列（限流标记 + 重置倒计时）。
-			 * 所有行塞进同一个 grid 容器：列宽由最宽的一格决定，各列右边缘因此天然对齐；
-			 * 某行缺列时留空格子（不挤位），跨列文案用 span 占满右侧三列。
-			 */
+			/** 网格里的一个单元格：标签列左对齐、值列右对齐；column/span 控制它落在哪几列。 */
 			const gridCell = (text, opts) => {
 				const el = document.createElement("span");
 				const o = opts || {};
@@ -537,12 +543,21 @@ window.__ModuleLoader__.load({
 				});
 				return el;
 			};
-			/** 把若干行（每行是若干 gridCell）装进同一个 4 列网格容器。 */
-			const quotaGrid = (rows) => {
+			/**
+			 * 余量区块的列对齐：cols=4 时 = 标签 | 比例 | 金额 | 尾列（限流标记 + 重置倒计时）。
+			 * 所有行塞进同一个 grid 容器：列宽由最宽的一格决定，各列右边缘因此天然对齐；
+			 * 某行缺列时留空格子（不挤位），跨列文案用 span 占满右侧几列。
+			 * cols=2 是收起态（不勾「显示更多信息」）：只剩「标签 | 值」两列，值贴浮层右边缘——
+			 * 若这时还留着空的后两列，两个 columnGap（10px×2）会把比例顶得离右边缘差 20px，
+			 * 跟下面「到期」和上面「提供商 / 当前模型」各行的值对不齐。
+			 */
+			const quotaGrid = (rows, cols) => {
 				const g = document.createElement("div");
 				Object.assign(g.style, {
 					display: "grid",
-					gridTemplateColumns: "max-content minmax(0, 1fr) minmax(0, max-content) minmax(0, max-content)",
+					gridTemplateColumns: cols === 2
+						? "max-content minmax(0, 1fr)"
+						: "max-content minmax(0, 1fr) minmax(0, max-content) minmax(0, max-content)",
 					columnGap: "10px", rowGap: "2px", alignItems: "baseline",
 					fontSize: 12, lineHeight: "18px",
 					fontFamily: "var(--dsw-font-family-mono, monospace)"
@@ -671,15 +686,23 @@ window.__ModuleLoader__.load({
 			 */
 			const balanceRows = (b) => {
 				if (!b) return null;
-				// 暂不支持查询 / 出错：标签 + 状态文案（文案占满右侧三列）。
+				// 暂不支持查询 / 出错：标签 + 状态文案（文案占满右侧）。
 				if (!b.supported || b.error) {
-					return [quotaGrid([[gridCell(tx("balance"), { label: true }), gridCell(quotaErrorText(b), { span: "2 / -1" })]])];
+					return [quotaGrid([[gridCell(tx("balance"), { label: true }), gridCell(quotaErrorText(b), { span: "2 / -1" })]], 2)];
 				}
 				var more = QSettings.showMore;
+				// 网格列数跟着模式走：勾了「显示更多信息」是四列（标签 | 比例 | 金额 | 倒计时），
+				// 没勾就只有两列 —— 收起态的比例要贴右边缘，与「到期」和上方各行的值对齐。
+				var cols = more ? 4 : 2;
 				var grid = [];
 				var wins = sortedWindows(b);
 				for (var i = 0; i < wins.length; i++) {
 					var w = wins[i];
+					if (!more) {
+						// 收起态：比例（含「已限流」标记）作为一个值右对齐，没有金额/倒计时列。
+						grid.push([gridCell(windowLabel(w), { label: true }), gridCell(compactWindowText(w) || tx("noData"), { span: "2 / -1" })]);
+						continue;
+					}
 					var c = windowColumns(w, { more: more, countdown: true });
 					var pct = c ? c.pct : "";
 					var money = c ? c.money : "";
@@ -697,12 +720,12 @@ window.__ModuleLoader__.load({
 				}
 				var balText = balanceValue(b.balance);
 				if (balText) grid.push([gridCell(tx("balanceName"), { label: true }), gridCell(balText, { span: "2 / -1" })]);
-				var out = grid.length ? [quotaGrid(grid)] : [];
+				var out = grid.length ? [quotaGrid(grid, cols)] : [];
 				// 到期不参与窗口列的网格对齐：单独一行、标签在左、文本右对齐（与浮层其它区块的行式一致）。
 				var perText = periodValue(b.period, { more: more });
 				if (perText) out.push(row(tx("expiresOn"), perText));
 				// 什么数据都没有时给一行「无数据」，避免空白区块。
-				if (!out.length) out.push(quotaGrid([[gridCell(tx("balance"), { label: true }), gridCell(tx("noData"), { span: "2 / -1" })]]));
+				if (!out.length) out.push(quotaGrid([[gridCell(tx("balance"), { label: true }), gridCell(tx("noData"), { span: "2 / -1" })]], 2));
 				return out;
 			};
 
@@ -1336,7 +1359,8 @@ window.__ModuleLoader__.load({
 						React.createElement("input", { type: "number", min: 1, step: 1, value: min, disabled: !autoRefreshOn, onChange: (e) => setMin(e.target.value), onBlur: commitMin, onKeyDown: (e) => { if (e.key === "Enter") { e.preventDefault(); commitMin(); } }, style: { width: 90, padding: "6px 10px", fontSize: 13, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 8, background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", outline: "none", opacity: autoRefreshOn ? 1 : 0.55 } }),
 						React.createElement("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)", opacity: autoRefreshOn ? 1 : 0.6 } }, tx("settings.intervalMin"))
 					),
-					// 「显示更多信息」：默认关——余量只显示比例数字与到期日期，金额/倒计时按需打开。
+					// 「显示更多信息」：默认开——余量显示金额、重置倒计时与到期剩余天数；
+					// 关掉后只剩比例数字与到期日期，比例仍然贴着面板右边缘与其它值对齐。
 					// 浮层与设置页表格读取的是同一个 QSettings.showMore，因此两处永远同步。
 					React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--dsw-alias-label-primary)", cursor: "pointer" } },
 						React.createElement("input", { type: "checkbox", checked: showMore, onChange: (e) => { const v = e.target.checked; const prev = QSettings.showMore; QSettings.showMore = v; setShowMore(v); persist({ showMore: v }, () => { QSettings.showMore = prev; setShowMore(prev); }); } }),
