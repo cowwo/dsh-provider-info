@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
 			"noData": "无数据",
 			"insufficient": "（余额不足）",
 			"rateLimited": "已限流",
+			"noReset": "—",
 			// 设置页
 			"settings.entry": "提供商信息",
 			"settings.title": "提供商信息与余量",
@@ -119,6 +120,7 @@ window.__ModuleLoader__.load({
 			"noData": "No data",
 			"insufficient": "(insufficient balance)",
 			"rateLimited": "Rate limited",
+			"noReset": "—",
 			// 设置页
 			"settings.entry": "Provider info",
 			"settings.title": "Provider info & balance",
@@ -312,25 +314,47 @@ window.__ModuleLoader__.load({
 			return minutes + "m";
 		};
 		/**
-		 * 一个窗口的展示值：已用%（已用 $/总额 $）[ 已限流][ · 倒计时]。
-		 * 金额与倒计时属于「更多信息」（`opts.more`，默认关）；关掉后只剩比例数字。
-		 * 倒计时与「到期」是同一时刻时不再重复显示（月度池的周期终点就是订阅到期）。
+		 * 一个窗口拆成三段：`pct`（比例）/ `money`（`已用/总额`，不带括号）/ `tail`（限流标记 + 重置倒计时）。
+		 * 浮层拿这三段按列对齐渲染（见 gridCell / quotaGrid），表格侧仍用 windowValue 拼成一行。
+		 * 金额与倒计时属于「更多信息」（`opts.more`，默认关）；每个窗口都带自己的重置倒计时，
+		 * 「月」行也不例外——它的重置时刻与「到期」相同，但两行各给一半信息（月行＝还有多久，
+		 * 到期行＝哪天），两行都留着才与 5小时 / 周 对齐。
 		 */
-		const windowValue = (w, opts) => {
-			if (!w) return "";
+		const windowCells = (w, opts) => {
+			if (!w) return null;
 			var more = !!(opts && opts.more);
-			var out = pctText(w.percent);
-			if (more && out && w.used != null && w.total != null) {
-				out += "（" + moneyText(w.currency, w.used) + "/" + moneyText(w.currency, w.total) + "）";
+			var pct = pctText(w.percent);
+			var money = (more && pct && w.used != null && w.total != null)
+				? moneyText(w.currency, w.used) + "/" + moneyText(w.currency, w.total)
+				: "";
+			var tail = [];
+			if (w.rateLimited) tail.push(tx("rateLimited"));
+			if (more && opts && opts.countdown) {
+				// 厂商没给重置时间时（如 Command Code 的 5 小时窗还没被任何请求打开，接口回 resetAt: 0，
+				// 或窗口已过期）给个占位，别让这一行的尾列空着——OpenCode Go 每行都有倒计时，两边看起来才一致。
+				var cd = w.resetsAt ? countdownStr(w.resetsAt) : null;
+				tail.push(cd || tx("noReset"));
 			}
-			if (w.rateLimited) out += " " + tx("rateLimited");
-			if (more && opts && opts.countdown && w.resetsAt) {
-				var dup = opts.period && opts.period.end && Date.parse(opts.period.end) === Date.parse(w.resetsAt);
-				if (!dup) {
-					var cd = countdownStr(w.resetsAt);
-					if (cd) out += " · " + cd;
-				}
-			}
+			return { pct: pct, money: money, tail: tail.join(" · ") };
+		};
+		/**
+		 * 浮层的分列版：在三段之上决定「分隔点」放哪——某段后面还有内容时，该段以 ` ·` 结尾。
+		 * 右对齐的单元格里，结尾字符天然对齐成一列，所以 `4.00%` 与 `77.00%` 宽度不同、
+		 * 金额 `$0.48/$12.00` 与 `$46.20/$60.00` 长度不同，各列的点也不会错位。
+		 */
+		const windowColumns = (w, opts) => {
+			var c = windowCells(w, opts);
+			if (!c) return null;
+			var pct = c.pct, money = c.money, tail = c.tail;
+			if (tail && money) money += " ·";
+			if ((money || tail) && pct) pct += " ·";
+			return { pct: pct, money: money, tail: tail };
+		};
+		/** 一个窗口的一行文本：已用% · 已用/总额 [· 已限流][ · 倒计时]（表格与降级用，浮层则按列渲染这三段）。 */
+		const windowValue = (w, opts) => {
+			var c = windowCells(w, opts);
+			if (!c) return "";
+			var out = [c.pct, c.money, c.tail].filter(Boolean).join(" · ");
 			return out || tx("noData");
 		};
 		/** 余额（余额型）：按币种字母升序稳定显示（DeepSeek 接口的币种顺序不稳定），多币种用 " / " 连接。 */
@@ -341,7 +365,10 @@ window.__ModuleLoader__.load({
 			if (!parts.length) return "";
 			return parts.join(" / ") + (bal.isAvailable === false ? tx("insufficient") : "");
 		};
-		/** 到期（订阅计费周期结束）：`2026-10-08`；「剩 28 天」属于「更多信息」（`opts.more`，默认关）。 */
+		/**
+		 * 到期（订阅计费周期结束）：`2026-10-08`；「剩 28 天」属于「更多信息」（`opts.more`，默认关）。
+		 * 「到期」行不参与窗口行的列对齐，按浮层普通的「标签 + 右对齐文本」行渲染。
+		 */
 		const periodValue = (p, opts) => {
 			if (!p || !p.end) return "";
 			var d = new Date(p.end);
@@ -459,6 +486,37 @@ window.__ModuleLoader__.load({
 				r.appendChild(l);
 				r.appendChild(v);
 				return r;
+			};
+			/**
+			 * 余量区块的列对齐：四列 = 标签 | 比例 | 金额 | 尾列（限流标记 + 重置倒计时）。
+			 * 所有行塞进同一个 grid 容器：列宽由最宽的一格决定，各列右边缘因此天然对齐；
+			 * 某行缺列时留空格子（不挤位），跨列文案用 span 占满右侧三列。
+			 */
+			const gridCell = (text, opts) => {
+				const el = document.createElement("span");
+				const o = opts || {};
+				el.textContent = text == null ? "" : String(text);
+				Object.assign(el.style, {
+					color: o.label ? "#8a93a5" : "#e6e9f0",
+					textAlign: o.label ? "left" : "right",
+					whiteSpace: "pre-wrap", wordBreak: "break-word",
+					justifySelf: o.label ? "start" : "end",
+					gridColumn: o.column != null ? String(o.column) : (o.span || "auto")
+				});
+				return el;
+			};
+			/** 把若干行（每行是若干 gridCell）装进同一个 4 列网格容器。 */
+			const quotaGrid = (rows) => {
+				const g = document.createElement("div");
+				Object.assign(g.style, {
+					display: "grid",
+					gridTemplateColumns: "max-content minmax(0, 1fr) minmax(0, max-content) minmax(0, max-content)",
+					columnGap: "10px", rowGap: "2px", alignItems: "baseline",
+					fontSize: 12, lineHeight: "18px",
+					fontFamily: "var(--dsw-font-family-mono, monospace)"
+				});
+				for (var i = 0; i < rows.length; i++) for (var j = 0; j < rows[i].length; j++) g.appendChild(rows[i][j]);
+				return g;
 			};
 			const heading = (text) => {
 				const h = document.createElement("div");
@@ -581,24 +639,42 @@ window.__ModuleLoader__.load({
 			 */
 			const balanceRows = (b) => {
 				if (!b) return null;
-				// 暂不支持查询 / 出错：一行状态文案。
-				if (!b.supported || b.error) return [row(tx("balance"), quotaErrorText(b))];
+				// 暂不支持查询 / 出错：标签 + 状态文案（文案占满右侧三列）。
+				if (!b.supported || b.error) {
+					return [quotaGrid([[gridCell(tx("balance"), { label: true }), gridCell(quotaErrorText(b), { span: "2 / -1" })]])];
+				}
 				var more = QSettings.showMore;
-				var out = [];
+				var grid = [];
 				var wins = sortedWindows(b);
 				for (var i = 0; i < wins.length; i++) {
 					var w = wins[i];
-					out.push(row(windowLabel(w), windowValue(w, { more: more, countdown: true, period: b.period })));
+					var c = windowColumns(w, { more: more, countdown: true });
+					var pct = c ? c.pct : "";
+					var money = c ? c.money : "";
+					var tail = c ? c.tail : "";
+					if (!pct && !money && !tail) {
+						grid.push([gridCell(windowLabel(w), { label: true }), gridCell(tx("noData"), { span: "2 / -1" })]);
+						continue;
+					}
+					grid.push([
+						gridCell(windowLabel(w), { label: true }),
+						gridCell(pct, { column: 2 }),
+						gridCell(money, { column: 3 }),
+						gridCell(tail, { column: 4 })
+					]);
 				}
 				var balText = balanceValue(b.balance);
-				if (balText) out.push(row(tx("balanceName"), balText));
+				if (balText) grid.push([gridCell(tx("balanceName"), { label: true }), gridCell(balText, { span: "2 / -1" })]);
+				var out = grid.length ? [quotaGrid(grid)] : [];
+				// 到期不参与窗口列的网格对齐：单独一行、标签在左、文本右对齐（与浮层其它区块的行式一致）。
 				var perText = periodValue(b.period, { more: more });
 				if (perText) out.push(row(tx("expiresOn"), perText));
-				return out.length ? out : [row(tx("balance"), tx("noData"))];
+				// 什么数据都没有时给一行「无数据」，避免空白区块。
+				if (!out.length) out.push(quotaGrid([[gridCell(tx("balance"), { label: true }), gridCell(tx("noData"), { span: "2 / -1" })]]));
+				return out;
 			};
 
-			// 把 balanceRows 的结果映射为 DOM 行元素。
-			// balanceRows 已经返回现成的 DOM 行元素（每个是 row() 的结果），直接透传即可。
+			// 余量区块的 DOM：balanceRows 直接返回现成元素（单个 4 列网格容器），透传即可。
 			const buildRowEls = (b) => balanceRows(b);
 			// 点「刷新」：绕过 client + host 缓存，强制重新查询，并只重绘余量数据行。
 			const onRefreshBalance = async () => {

@@ -30,6 +30,7 @@ const dict = {
 	daysUnit: '天',
 	insufficient: '（余额不足）',
 	rateLimited: '已限流',
+	noReset: '—',
 	noData: '无数据',
 	noSupportProvider: '当前暂不支持查询当前提供商',
 	noApiKey: '未配置 API Key',
@@ -41,7 +42,7 @@ const resolveLang = () => 'zh'
 
 // eslint-disable-next-line no-new-func
 const api = new Function('tx', 'resolveLang', region + `
-	return { windowLabel, windowValue, balanceValue, periodValue, quotaErrorText, quotaStatusText, hasQuotaData, sortedWindows };
+	return { windowLabel, windowValue, windowCells, windowColumns, balanceValue, periodValue, quotaErrorText, quotaStatusText, hasQuotaData, sortedWindows };
 `)(tx, resolveLang)
 
 let failed = 0
@@ -50,8 +51,8 @@ const check = (what, actual, expected) => {
 	if (!ok) failed++
 	console.log((ok ? '  ok   ' : '  FAIL ') + what + '  =>  ' + JSON.stringify(actual) + (ok ? '' : '   (期望 ' + JSON.stringify(expected) + ')'))
 }
-/** 只比较「· 倒计时」之前的部分（倒计时随当前时间变化）。 */
-const beforeCountdown = (s) => String(s).split(' · ')[0]
+/** 去掉末尾的「· 倒计时」（倒计时随当前时间变化，其余部分固定；行内还有别的 · 分隔符，不能按 split 取首段）。 */
+const dropCountdown = (s) => String(s).replace(/\s·\s(?:\d+d\d+h|\d+h\d+m|\d+m)$/, "");
 
 // ---- 真实返回样本（来自 tools/verify-quota.mjs 的实测输出）----
 const deepseek = {
@@ -59,22 +60,29 @@ const deepseek = {
 	balance: { isAvailable: true, items: [{ currency: 'USD', total: 0 }, { currency: 'CNY', total: 20.38 }] },
 	windows: null, period: null
 }
+// 夹具的字段结构照抄实测样本，但 resetsAt / 到期时间改成「相对当前时间」生成：
+// 否则日期一过，倒计时与到期断言就会随时间失效。
+const isoIn = (ms) => new Date(Date.now() + ms).toISOString()
+const ogRollEnd = isoIn(3 * 3600000), ogWeekEnd = isoIn(4 * 86400000), ogMonthEnd = isoIn(9 * 86400000)
+const ccRollEnd = isoIn(5 * 3600000), ccWeekEnd = isoIn(6 * 3600000), ccMonthEnd = isoIn(23 * 86400000)
+
 const opencodeGo = {
 	supported: true, recognized: true, error: null,
-	balance: null, period: null,
+	// host 侧由月窗 resetsAt 推导出的「到期」（Go 没有独立的订阅字段）
+	balance: null, period: { end: ogMonthEnd, daysLeft: 9 },
 	windows: [
-		{ key: 'monthly', durationHours: 720, percent: 72, used: 43.2, total: 60, currency: 'USD', resetsAt: '2026-09-24T03:57:53.511Z', rateLimited: false },
-		{ key: 'rolling', durationHours: 5, percent: 2, used: 0.24, total: 12, currency: 'USD', resetsAt: '2026-09-11T12:42:53.511Z', rateLimited: false },
-		{ key: 'weekly', durationHours: 168, percent: 1, used: 0.3, total: 30, currency: 'USD', resetsAt: '2026-09-14T00:00:00.511Z', rateLimited: false }
+		{ key: 'monthly', durationHours: 720, percent: 72, used: 43.2, total: 60, currency: 'USD', resetsAt: ogMonthEnd, rateLimited: false },
+		{ key: 'rolling', durationHours: 5, percent: 2, used: 0.24, total: 12, currency: 'USD', resetsAt: ogRollEnd, rateLimited: false },
+		{ key: 'weekly', durationHours: 168, percent: 1, used: 0.3, total: 30, currency: 'USD', resetsAt: ogWeekEnd, rateLimited: false }
 	]
 }
 const commandCode = {
 	supported: true, recognized: true, error: null, balance: null,
-	period: { end: '2026-10-08T03:34:45.000Z', daysLeft: 27 },
+	period: { end: ccMonthEnd, daysLeft: 23 },
 	windows: [
-		{ key: 'rolling', durationHours: 5, percent: 5.09, used: 0.71, total: 14, currency: 'USD', resetsAt: '2026-09-11T10:56:21.810Z', rateLimited: false },
-		{ key: 'weekly', durationHours: 168, percent: 22.07, used: 7.72, total: 35, currency: 'USD', resetsAt: '2026-09-15T09:02:12.735Z', rateLimited: false },
-		{ key: 'monthly', durationHours: 720, percent: 9.94, used: 6.96, total: 70, currency: 'USD', resetsAt: '2026-10-08T03:34:45.000Z', rateLimited: false }
+		{ key: 'rolling', durationHours: 5, percent: 5.09, used: 0.71, total: 14, currency: 'USD', resetsAt: ccRollEnd, rateLimited: false },
+		{ key: 'weekly', durationHours: 168, percent: 22.07, used: 7.72, total: 35, currency: 'USD', resetsAt: ccWeekEnd, rateLimited: false },
+		{ key: 'monthly', durationHours: 720, percent: 9.94, used: 6.96, total: 70, currency: 'USD', resetsAt: ccMonthEnd, rateLimited: false }
 	]
 }
 const kimi = { supported: false, recognized: true, family: 'kimi', error: 'not-supported', balance: null, windows: null, period: null }
@@ -88,24 +96,43 @@ console.log('\n【浮层：og-01（窗口顺序必须按真实时长排：5小�
 const ogSorted = api.sortedWindows(opencodeGo)
 check('窗口顺序', ogSorted.map((w) => w.key).join(','), 'rolling,weekly,monthly')
 check('5小时 行', api.windowLabel(ogSorted[0]), '5小时')
-check('5小时 值', beforeCountdown(api.windowValue(ogSorted[0], { more: true, countdown: true, period: opencodeGo.period })), '2.00%（$0.24/$12.00）')
-check('周 值', beforeCountdown(api.windowValue(ogSorted[1], { more: true, countdown: true, period: opencodeGo.period })), '1.00%（$0.30/$30.00）')
-check('月 值', beforeCountdown(api.windowValue(ogSorted[2], { more: true, countdown: true, period: opencodeGo.period })), '72.00%（$43.20/$60.00）')
-check('og 没有到期行', api.periodValue(opencodeGo.period, { more: true }), '')
+check('5小时 值', dropCountdown(api.windowValue(ogSorted[0], { more: true, countdown: true, period: opencodeGo.period })), '2.00% · $0.24/$12.00')
+check('周 值', dropCountdown(api.windowValue(ogSorted[1], { more: true, countdown: true, period: opencodeGo.period })), '1.00% · $0.30/$30.00')
+check('月 值', dropCountdown(api.windowValue(ogSorted[2], { more: true, countdown: true })), '72.00% · $43.20/$60.00')
+check('月 值带倒计时（与 5小时/周 对齐）', / · \d/.test(api.windowValue(ogSorted[2], { more: true, countdown: true })), true)
+const ogMonthCells = api.windowCells(ogSorted[2], { more: true, countdown: true })
+check('分列：比例', ogMonthCells.pct, '72.00%')
+check('分列：金额（不带括号）', ogMonthCells.money, '$43.20/$60.00')
+check('分列：尾列＝倒计时', /^\d+[dhm]/.test(ogMonthCells.tail), true)
+check('一行文本＝三列用 · 拼起来', api.windowValue(ogSorted[2], { more: true, countdown: false }), ogMonthCells.pct + ' · ' + ogMonthCells.money)
+const ogMonthCols = api.windowColumns(ogSorted[2], { more: true, countdown: true })
+check('浮层分列：比例带尾点', ogMonthCols.pct, '72.00% ·')
+check('浮层分列：金额带尾点', ogMonthCols.money, '$43.20/$60.00 ·')
+check('浮层分列：尾列＝倒计时', ogMonthCols.tail, ogMonthCells.tail)
+check('浮层分列：一行三段的字符与 windowValue 一致', [ogMonthCols.pct.split(' ·')[0], ogMonthCols.money.split(' ·')[0], ogMonthCols.tail].join(' · '), api.windowValue(ogSorted[2], { more: true, countdown: true }))
+check('到期行＝月窗终点那一天（两行各给一半、指向同一时刻）', api.periodValue(opencodeGo.period, { more: true }), api.periodValue({ end: ogMonthEnd, daysLeft: 9 }, { more: true }))
+check('到期 行', api.periodValue(opencodeGo.period, { more: true }), api.periodValue({ end: ogMonthEnd, daysLeft: 9 }, { more: true }))
 
-console.log('\n【浮层：cmd-01（月行不得重复显示与「到期」相同的倒计时），显示更多信息=开】')
+console.log('\n【浮层：cmd-01（月行同样带自己的重置倒计时），显示更多信息=开】')
 const ccSorted = api.sortedWindows(commandCode)
-check('月 值（无倒计时）', api.windowValue(ccSorted[2], { more: true, countdown: true, period: commandCode.period }), '9.94%（$6.96/$70.00）')
-check('5小时 值附倒计时', beforeCountdown(api.windowValue(ccSorted[0], { more: true, countdown: true, period: commandCode.period })), '5.09%（$0.71/$14.00）')
-check('到期 行', api.periodValue(commandCode.period, { more: true }).split(' · ')[0], '2026-10-08')
+check('月 值', dropCountdown(api.windowValue(ccSorted[2], { more: true, countdown: true })), '9.94% · $6.96/$70.00')
+check('月 值带倒计时', / · \d/.test(api.windowValue(ccSorted[2], { more: true, countdown: true })), true)
+check('5小时 值附倒计时', dropCountdown(api.windowValue(ccSorted[0], { more: true, countdown: true })), '5.09% · $0.71/$14.00')
+check('到期 行', api.periodValue(commandCode.period, { more: true }), api.periodValue({ end: ccMonthEnd, daysLeft: 23 }, { more: true }))
 
 console.log('\n【显示更多信息=关（默认）：只留比例数字与到期日期】')
 check('不传选项也默认关（调用处漏传也安全）', api.windowValue(ogSorted[0]), '2.00%')
-check('浮层窗口行只剩百分比', api.windowValue(ogSorted[0], { more: false, countdown: true, period: opencodeGo.period }), '2.00%')
+check('浮层窗口行只剩百分比', api.windowValue(ogSorted[0], { more: false, countdown: true }), '2.00%')
 check('表格窗口格只剩百分比', api.windowValue(ccSorted[2], { more: false, countdown: false }), '9.94%')
-check('到期只剩日期', api.periodValue(commandCode.period, { more: false }), '2026-10-08')
+check('关掉更多信息：金额列为空', api.windowCells(ogSorted[2], { more: false }).money, '')
+check('关掉更多信息：尾列为空', api.windowCells(ogSorted[2], { more: false, countdown: true }).tail, '')
+check('关掉更多信息：浮层分列只剩比例、且不带尾点', api.windowColumns(ogSorted[2], { more: false, countdown: true }).pct, '72.00%')
+check('关掉更多信息：到期无剩余天数', api.periodValue(opencodeGo.period, { more: false }), api.periodValue({ end: ogMonthEnd }, { more: false }))
+check('到期只剩日期', api.periodValue(commandCode.period, { more: false }), api.periodValue({ end: ccMonthEnd }, { more: false }))
 check('余额型不受影响', api.balanceValue(deepseek.balance), '¥20.38 / $0.00')
-check('「已限流」是状态警告，不随开关隐藏', api.windowValue({ key: 'rolling', percent: 5, rateLimited: true }, { more: false, countdown: true }), '5.00% 已限流')
+check('「已限流」是状态警告，不随开关隐藏', api.windowValue({ key: 'rolling', percent: 5, rateLimited: true }, { more: false, countdown: true }), '5.00% · 已限流')
+check('「已限流」归到尾列', api.windowCells({ key: 'rolling', percent: 5, rateLimited: true }, { more: false }).tail, '已限流')
+check('浮层分列：只有比例＋已限流时，点加在比例后面', api.windowColumns({ key: 'rolling', percent: 5, rateLimited: true }, { more: false, countdown: true }).pct, '5.00% ·')
 
 console.log('\n【设置页表格：套餐型没有「余额」格（余额列只服务充值型）】')
 check('og 余额格', api.balanceValue(opencodeGo.balance), '')
@@ -120,6 +147,47 @@ check('未识别厂商状态文案', api.quotaStatusText(unknown), '当前暂不
 
 console.log('\n【余额不足后缀】')
 check('余额不足', api.balanceValue({ isAvailable: false, items: [{ currency: 'CNY', total: 0 }] }), '¥0.00（余额不足）')
+
+// ---- 浮层余量区块的「结构」断言：用真实源码 + 最小 DOM 替身跑 balanceRows() ----
+// 这段逻辑在 client.js 的「提供商徽章 + 悬浮信息浮层」region 里（不在上面的文案 region），
+// 所以单独抽出来执行；只 stub document / QSettings，跑的是插件真实的渲染代码。
+const hoverStart = src.indexOf('const row = (label, value) => {')
+const hoverEnd = src.indexOf('// 余量区块的 DOM：balanceRows')
+if (hoverStart < 0 || hoverEnd < 0) throw new Error('找不到 client.js 里的浮层 region 标记')
+const blankDoc = { createElement: (tag) => ({ tagName: tag, style: {}, textContent: '', children: [], appendChild(c) { this.children.push(c); return c } }) }
+const QSettingsStub = { showMore: true }
+// eslint-disable-next-line no-new-func
+const panel = new Function('tx', 'resolveLang', 'document', 'QSettings', 'UNKNOWN',
+	region + '\n' + src.slice(hoverStart, hoverEnd) + '\nreturn { balanceRows };'
+)(tx, resolveLang, blankDoc, QSettingsStub, '未提供')
+
+/** 结构指纹：数字、以及倒计时的时长写法（3h0m / 9d0h）都归一，只比结构、列位与分隔符。 */
+const shapeText = (s) => String(s)
+	.replace(/\d+d\d+h|\d+h\d+m|\d+m/g, 'N<cd>')
+	.replace(/\d+(\.\d+)?/g, 'N')
+const panelShape = (b) => panel.balanceRows(b).map((el) => (el.style.display === 'grid'
+	? el.children.map((c) => (c.style.gridColumn || 'auto') + ':' + shapeText(c.textContent)).join(' | ')
+	: 'row ' + el.children.map((c) => shapeText(c.textContent)).join(' | ')))
+
+console.log('\n【浮层结构：两家厂商必须同一套规则（列位 / 分隔点 / 到期独立行）】')
+const ogPanel = panel.balanceRows(opencodeGo), ccPanel = panel.balanceRows(commandCode)
+check('og-01 与 cmd-01 的结构指纹一致', panelShape(commandCode).join(' // '), panelShape(opencodeGo).join(' // '))
+check('窗口行＝四列（auto,2,3,4 重复三行）', ogPanel[0].children.map((c) => c.style.gridColumn || 'auto').join(','), 'auto,2,3,4,auto,2,3,4,auto,2,3,4')
+check('比例列与金额列都以「 ·」结尾', ogPanel[0].children.filter((c) => c.style.gridColumn === '2' || c.style.gridColumn === '3').every((c) => / ·$/.test(c.textContent)), true)
+check('尾列不带前导点（点挂在前一段末尾）', ogPanel[0].children.filter((c) => c.style.gridColumn === '4').every((c) => !/^· /.test(c.textContent)), true)
+check('「到期」行不在网格里（独立普通行）', ogPanel.length === 2 && ogPanel[1].style.display !== 'grid' && ogPanel[1].children[0].textContent === '到期', true)
+QSettingsStub.showMore = false
+check('关掉「显示更多信息」：窗口行只剩比例、且不带尾点', panelShape(opencodeGo)[0], 'auto:N小时 | 2:N% | 3: | 4: | auto:周 | 2:N% | 3: | 4: | auto:月 | 2:N% | 3: | 4:')
+const idleWindow = { key: 'rolling', durationHours: 5, percent: 0, used: 0, total: 14, currency: 'USD', resetsAt: null, rateLimited: false }
+const idleCmd = { supported: true, recognized: true, error: null, balance: null, period: null, windows: [idleWindow] }
+check('没有重置时间（cmd 没开窗）：尾列给占位，不空着', api.windowColumns(idleWindow, { more: true, countdown: true }).tail, '—')
+check('没有重置时间：一行文本也带占位', api.windowValue(idleWindow, { more: true, countdown: true }), '0.00% · $0.00/$14.00 · —')
+QSettingsStub.showMore = true // 这条要看「更多信息=开」时的列结构
+check('没有重置时间：浮层四列仍是齐的', panelShape(idleCmd)[0], 'auto:N小时 | 2:N% · | 3:$N/$N · | 4:—')
+QSettingsStub.showMore = false
+check('关掉「显示更多信息」时：不给占位（尾列本来就该空）', api.windowColumns(idleWindow, { more: false, countdown: true }).tail, '')
+check('关掉「显示更多信息」：到期行仍在（只剩日期）', panelShape(opencodeGo)[1], 'row 到期 | N-N-N')
+QSettingsStub.showMore = true
 
 console.log('\n' + (failed ? failed + ' 项不符' : '全部符合预期'))
 process.exit(failed ? 1 : 0)
