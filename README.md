@@ -1,5 +1,17 @@
 # dsh-provider-info
 
+> ## ⚠️ This plugin has been merged and is no longer maintained
+>
+> It has been merged with [`dsh-model-fit`](https://github.com/cowwo/dsh-model-fit) into a new plugin
+> **[`dsh-model-toolkit`](https://github.com/cowwo/dsh-model-toolkit)** — one package that provides both
+> "model capability settings" and "provider badge / balance queries".
+>
+> **Please switch to:** `npm i dsh-model-toolkit` (or `npm i @cowwo/dsh-model-toolkit`)
+>
+> This repository is archived and the `dsh-provider-info` package is marked deprecated;
+> historical versions remain available.
+
+
 A [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) plugin.
 
 > [中文说明](README.zh.md)

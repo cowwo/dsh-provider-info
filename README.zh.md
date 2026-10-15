@@ -1,5 +1,16 @@
 # dsh-provider-info
 
+> ## ⚠️ 此插件已合并，不再单独维护
+>
+> 本插件已与 [`dsh-model-fit`](https://github.com/cowwo/dsh-model-fit) 合并为新插件
+> **[`dsh-model-toolkit`](https://github.com/cowwo/dsh-model-toolkit)**（模型工具箱）——
+> 一个包同时提供「模型能力管理」与「提供商徽章 / 余额查询」两块功能。
+>
+> **请改用：** `npm i dsh-model-toolkit`（或 `npm i @cowwo/dsh-model-toolkit`）
+>
+> 本仓库已归档、`dsh-provider-info` 包已标记为废弃（deprecated）；历史版本仍可查看与安装。
+
+
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 插件。
 
 它的作用只有一件事：**在你选择模型的地方，旁边显示一行小字，告诉你当前选中的模型是哪家服务商（公司）提供的。**

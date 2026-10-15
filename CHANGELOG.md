@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-10-15
+
+### Changed
+- **终版：本插件已合并到 [`dsh-model-toolkit`](https://github.com/cowwo/dsh-model-toolkit)。**
+  它把本插件与 [`dsh-model-fit`](https://github.com/cowwo/dsh-model-fit) 合并成一个包：模型能力设置（图片输入 / 推理强度 / 线路系统消息角色）+ 提供商徽章与余额查询。
+  请改用 `npm i dsh-model-toolkit`（或 `npm i @cowwo/dsh-model-toolkit`）。
+  本包已在 npm 上标记为 deprecated（废弃），本仓库已归档；历史版本仍可安装。
+  本版**不含功能改动**，仅为迁移提示。
+
 ## [0.16.0] - 2026-09-15
 
 ### Changed
